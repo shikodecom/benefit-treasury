@@ -8,6 +8,7 @@ use App\Http\Controllers\BenefitLotController;
 use App\Http\Controllers\BenefitListingController;
 use App\Http\Controllers\BenefitProgramController;
 use App\Http\Controllers\BenefitTransactionController;
+use App\Http\Controllers\BenefitTransferController;
 use App\Http\Controllers\HouseholdMemberController;
 use Illuminate\Support\Facades\Route;
 
@@ -54,6 +55,19 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/listings/{listing}/sell', [BenefitListingController::class, 'sellForm'])->name('listings.sell.form');
     Route::post('/listings/{listing}/sell', [BenefitListingController::class, 'sell'])->name('listings.sell');
     Route::post('/listings/{listing}/reverse-sale', [BenefitListingController::class, 'reverseSale'])->name('listings.reverse-sale');
+    Route::get('/transfers', [BenefitTransferController::class, 'index'])->name('transfers.index');
+    Route::get('/transfers/create', [BenefitTransferController::class, 'create'])->name('transfers.create');
+    Route::post('/transfers', [BenefitTransferController::class, 'store'])->name('transfers.store');
+    Route::get('/transfers/{group}', [BenefitTransferController::class, 'show'])->name('transfers.show');
+    Route::get('/transfers/{group}/steps/create', [BenefitTransferController::class, 'stepCreate'])->name('transfers.steps.create');
+    Route::post('/transfers/{group}/steps', [BenefitTransferController::class, 'addStep'])->name('transfers.steps.store');
+    Route::post('/transfer-steps/{step}/start', [BenefitTransferController::class, 'start'])->name('transfers.steps.start');
+    Route::get('/transfer-steps/{step}/complete', [BenefitTransferController::class, 'completeForm'])->name('transfers.steps.complete.form');
+    Route::post('/transfer-steps/{step}/complete', [BenefitTransferController::class, 'complete'])->name('transfers.steps.complete');
+    Route::post('/transfer-steps/{step}/cancel', [BenefitTransferController::class, 'cancelPlanned'])->name('transfers.steps.cancel');
+    Route::post('/transfer-steps/{step}/refund', [BenefitTransferController::class, 'cancelWithRefund'])->name('transfers.steps.refund');
+    Route::post('/transfer-steps/{step}/error', [BenefitTransferController::class, 'markError'])->name('transfers.steps.error');
+    Route::post('/transfer-steps/{step}/expected-date', [BenefitTransferController::class, 'updateExpectedDate'])->name('transfers.steps.expected-date');
     Route::view('/settings/benefits', 'settings.home')->name('settings.home');
 
     Route::get('/settings/household-members', [HouseholdMemberController::class, 'index'])->name('settings.members.index');

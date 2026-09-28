@@ -154,6 +154,10 @@ class BenefitTransactionController extends Controller
             return redirect()->route('listings.show', $transaction->listing_id)
                 ->withErrors(['transaction' => '出品詳細から売却取消を行ってください。']);
         }
+        if ($transaction->transfer_step_id !== null) {
+            return redirect()->route('transfers.show', $transaction->transferStep->transfer_group_id)
+                ->withErrors(['transaction' => '移行詳細から訂正してください。']);
+        }
         $service->reverse($transaction);
 
         return redirect()->route('ledger.transactions.show', $transaction)->with('status', '取消取引を記録しました。');

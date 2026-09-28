@@ -62,8 +62,11 @@ class BenefitAccountController extends Controller
         $processingTransfers = BenefitTransferStep::query()->where('status', 'processing')
             ->where(fn ($query) => $query->where('from_account_id', $account->id)
                 ->orWhere('to_account_id', $account->id))->count();
+        $recentTransfers = BenefitTransferStep::query()->with(['group', 'fromAccount.program', 'toAccount.program'])
+            ->where(fn ($query) => $query->where('from_account_id', $account->id)->orWhere('to_account_id', $account->id))
+            ->orderByDesc('id')->limit(10)->get();
 
-        return view('settings.accounts.show', compact('account', 'balance', 'lastTransaction', 'processingTransfers'));
+        return view('settings.accounts.show', compact('account', 'balance', 'lastTransaction', 'processingTransfers', 'recentTransfers'));
     }
 
     public function edit(BenefitAccount $account, BenefitProgramService $programs, HouseholdMemberService $members): View

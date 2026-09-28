@@ -16,7 +16,7 @@
     @if($transaction->lot)<div><dt>ロット</dt><dd><a href="{{ route('ledger.lots.show', $transaction->lot) }}">{{ $transaction->lot->display_name ?: '#'.$transaction->lot->id }}</a></dd></div>@endif
 </dl>@if($transaction->memo)<p>{{ $transaction->memo }}</p>@endif</div>
 @if($reversal)<div class="alert">この取引は #{{ $reversal->id }} で取り消されました。</div>
-@elseif($transaction->transaction_type !== 'reversal')
+@elseif($transaction->transaction_type !== 'reversal' && $transaction->listing_id === null && $transaction->transfer_step_id === null)
     <div class="card"><h2>訂正</h2><p class="help">元の取引を残し、逆方向の取引を記録します。</p><form method="post" action="{{ route('ledger.transactions.reverse', $transaction) }}" onsubmit="return confirm('この取引を取り消しますか？')">@csrf<button class="danger" type="submit">この取引を取り消す</button></form></div>
 @endif
 @endsection

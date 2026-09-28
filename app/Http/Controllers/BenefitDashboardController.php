@@ -6,6 +6,7 @@ use App\Domain\BenefitValues;
 use App\Models\BenefitLot;
 use App\Models\HouseholdMember;
 use App\Services\BenefitDashboardService;
+use App\Services\BenefitTransferService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -13,7 +14,7 @@ use Illuminate\View\View;
 
 class BenefitDashboardController extends Controller
 {
-    public function index(Request $request, BenefitDashboardService $service): View
+    public function index(Request $request, BenefitDashboardService $service, BenefitTransferService $transfers): View
     {
         $filters = $request->validate([
             'member' => ['nullable', Rule::in(array_merge(['shared'], HouseholdMember::query()->pluck('id')->map(fn ($id) => (string) $id)->all()))],
@@ -26,6 +27,14 @@ class BenefitDashboardController extends Controller
         $week = $service->expiringWithin($lots, 7);
         $month = $service->expiringWithin($lots, 30)
             ->filter(fn ($lot) => $service->daysUntilExpiry($lot) > 7)->values();
+        $pendingTransfers = \App\Models\BenefitTransferStep::query()->with('planningEquivalentProgram')
+            ->where('status', 'processing')->get();
+        $overdueTransfers = $transfers->overdueSteps();
+        $equivalents = $pendingTransfers->filter(fn ($step) => $step->planning_equivalent_program_id !== null)
+            ->groupBy('planning_equivalent_program_id')->map(fn ($items) => [
+                'program' => $items->first()->planningEquivalentProgram,
+                'quantity' => (string) $items->reduce(fn ($sum, $item) => $sum->plus($item->planning_equivalent_quantity), \Brick\Math\BigDecimal::zero())->toScale(4),
+            ]);
 
         return view('dashboard.index', [
             'service' => $service,
@@ -37,6 +46,9 @@ class BenefitDashboardController extends Controller
             'month' => $month,
             'listed' => $lots->filter(fn ($lot) => (float) $lot->listed_quantity > 0)->values(),
             'undecided' => $service->undecidedItems($lots),
+            'pendingTransfers' => $pendingTransfers,
+            'overdueTransfers' => $overdueTransfers,
+            'equivalents' => $equivalents,
         ]);
     }
 

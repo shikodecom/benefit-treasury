@@ -30,6 +30,11 @@ class BenefitTransferStep extends Model
         return $this->belongsTo(ConversionRule::class, 'conversion_rule_id');
     }
 
+    public function planningEquivalentProgram(): BelongsTo
+    {
+        return $this->belongsTo(BenefitProgram::class, 'planning_equivalent_program_id');
+    }
+
     public function transactions(): HasMany
     {
         return $this->hasMany(BenefitTransaction::class, 'transfer_step_id');

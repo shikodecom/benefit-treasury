@@ -10,6 +10,8 @@
         <div class="card summary-card"><small>{{ $label }}</small><strong>{{ $summary[$key]['count'] }}件</strong><span>設定済み概算 {{ number_format($summary[$key]['value']) }}円</span></div>
     @endforeach
 </div>
+<div class="dashboard-summary" aria-label="移行中の集計"><div class="card summary-card"><small>移行中</small><strong>{{ $pendingTransfers->count() }}件</strong><a href="{{ route('transfers.index') }}">移行一覧</a></div><div class="card summary-card"><small>着弾予定日超過</small><strong>{{ $overdueTransfers->count() }}件</strong><a href="{{ route('transfers.index', ['status'=>'overdue']) }}">確認する</a></div>@foreach($equivalents as $equivalent)<div class="card summary-card"><small>{{ $equivalent['program']?->name }} 換算</small><strong>{{ $equivalent['quantity'] }} {{ $equivalent['program']?->unit_name }}</strong></div>@endforeach</div>
+@if($overdueTransfers->isNotEmpty())<section class="dashboard-section"><div class="section-head"><h2>着弾確認が必要な移行 <span class="count">{{ $overdueTransfers->count() }}</span></h2></div><div class="dashboard-items">@foreach($overdueTransfers as $step)<article class="card"><strong>{{ $step->fromAccount->program->name }} → {{ $step->toAccount->program->name }}</strong><p>着弾予定 {{ $step->expected_complete_at }} · 受取予定 {{ $step->expected_destination_quantity ?? '未設定' }} {{ $step->toAccount->program->unit_name }}</p><p class="dashboard-recommendation">推奨: 着弾確認</p><a class="button secondary" href="{{ route('transfers.show', $step->transfer_group_id) }}">詳細</a></article>@endforeach</div></section>@endif
 <p class="help">30日以内には7日以内を含みます。出品中は出品件数と設定済み出品価格の合計、他はロット件数と方針別の概算価値です。価値未設定は合計に含めません。</p>
 
 <form class="card filters" method="get" action="{{ route('dashboard.index') }}">
