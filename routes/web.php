@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BenefitAccountController;
+use App\Http\Controllers\BenefitDashboardController;
 use App\Http\Controllers\BenefitLedgerController;
 use App\Http\Controllers\BenefitLotController;
 use App\Http\Controllers\BenefitProgramController;
@@ -9,7 +10,7 @@ use App\Http\Controllers\BenefitTransactionController;
 use App\Http\Controllers\HouseholdMemberController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', fn () => redirect()->route('ledger.home'));
+Route::get('/', fn () => redirect()->route('dashboard.index'));
 
 Route::middleware('guest')->group(function (): void {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
@@ -18,6 +19,8 @@ Route::middleware('guest')->group(function (): void {
 
 Route::middleware('auth')->group(function (): void {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+    Route::get('/dashboard', [BenefitDashboardController::class, 'index'])->name('dashboard.index');
+    Route::post('/dashboard/lots/{lot}/policy', [BenefitDashboardController::class, 'updatePolicy'])->name('dashboard.lots.policy');
     Route::get('/benefits', [BenefitLedgerController::class, 'index'])->name('ledger.home');
     Route::get('/transactions', [BenefitTransactionController::class, 'index'])->name('ledger.transactions.index');
     Route::get('/transactions/create', [BenefitTransactionController::class, 'create'])->name('ledger.transactions.create');

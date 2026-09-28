@@ -11,9 +11,10 @@
 <body>
 <header>
     <div class="topbar">
-        <a class="brand" href="{{ route('ledger.home') }}">特典台帳</a>
+        <a class="brand" href="{{ route('dashboard.index') }}">特典台帳</a>
         @auth
             <nav class="nav" aria-label="メインナビゲーション">
+                <a href="{{ route('dashboard.index') }}">ダッシュボード</a>
                 <a href="{{ route('ledger.home') }}">保有</a>
                 <a href="{{ route('ledger.transactions.index') }}">取引</a>
                 <a href="{{ route('ledger.lots.index') }}">ロット</a>

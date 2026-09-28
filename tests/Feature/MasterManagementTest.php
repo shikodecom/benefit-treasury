@@ -27,7 +27,7 @@ class MasterManagementTest extends TestCase
         User::factory()->create(['email' => 'admin@example.invalid', 'password' => 'test-password-123']);
 
         $this->post('/login', ['email' => 'admin@example.invalid', 'password' => 'test-password-123'])
-            ->assertRedirect('/settings/benefits');
+            ->assertRedirect('/dashboard');
         $this->assertAuthenticated();
         $this->post('/logout')->assertRedirect('/login');
         $this->assertGuest();
