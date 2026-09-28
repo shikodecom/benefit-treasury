@@ -5,6 +5,7 @@ use App\Http\Controllers\BenefitAccountController;
 use App\Http\Controllers\BenefitDashboardController;
 use App\Http\Controllers\BenefitLedgerController;
 use App\Http\Controllers\BenefitLotController;
+use App\Http\Controllers\BenefitListingController;
 use App\Http\Controllers\BenefitProgramController;
 use App\Http\Controllers\BenefitTransactionController;
 use App\Http\Controllers\HouseholdMemberController;
@@ -39,6 +40,20 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/lots/{lot}/use', [BenefitLotController::class, 'use'])->name('ledger.lots.use');
     Route::post('/lots/{lot}/expire', [BenefitLotController::class, 'expire'])->name('ledger.lots.expire');
     Route::post('/lots/{lot}/cancel', [BenefitLotController::class, 'cancel'])->name('ledger.lots.cancel');
+    Route::get('/listings', [BenefitListingController::class, 'index'])->name('listings.index');
+    Route::get('/listings/create', [BenefitListingController::class, 'create'])->name('listings.create');
+    Route::post('/listings', [BenefitListingController::class, 'store'])->name('listings.store');
+    Route::get('/listings/{listing}', [BenefitListingController::class, 'show'])->name('listings.show');
+    Route::get('/listings/{listing}/edit', [BenefitListingController::class, 'edit'])->name('listings.edit');
+    Route::put('/listings/{listing}', [BenefitListingController::class, 'update'])->name('listings.update');
+    Route::post('/listings/{listing}/publish', [BenefitListingController::class, 'publish'])->name('listings.publish');
+    Route::post('/listings/{listing}/price', [BenefitListingController::class, 'changePrice'])->name('listings.price');
+    Route::post('/listings/{listing}/cancel', [BenefitListingController::class, 'cancel'])->name('listings.cancel');
+    Route::post('/listings/{listing}/end-unsold', [BenefitListingController::class, 'endUnsold'])->name('listings.end-unsold');
+    Route::post('/listings/{listing}/relist', [BenefitListingController::class, 'relist'])->name('listings.relist');
+    Route::get('/listings/{listing}/sell', [BenefitListingController::class, 'sellForm'])->name('listings.sell.form');
+    Route::post('/listings/{listing}/sell', [BenefitListingController::class, 'sell'])->name('listings.sell');
+    Route::post('/listings/{listing}/reverse-sale', [BenefitListingController::class, 'reverseSale'])->name('listings.reverse-sale');
     Route::view('/settings/benefits', 'settings.home')->name('settings.home');
 
     Route::get('/settings/household-members', [HouseholdMemberController::class, 'index'])->name('settings.members.index');

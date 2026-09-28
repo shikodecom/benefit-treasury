@@ -150,6 +150,10 @@ class BenefitTransactionController extends Controller
 
     public function reverse(BenefitTransaction $transaction, BenefitTransactionService $service): RedirectResponse
     {
+        if ($transaction->transaction_type === 'sell' && $transaction->listing_id !== null) {
+            return redirect()->route('listings.show', $transaction->listing_id)
+                ->withErrors(['transaction' => '出品詳細から売却取消を行ってください。']);
+        }
         $service->reverse($transaction);
 
         return redirect()->route('ledger.transactions.show', $transaction)->with('status', '取消取引を記録しました。');

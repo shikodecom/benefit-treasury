@@ -56,8 +56,9 @@ class BenefitLotController extends Controller
         $remaining = $service->remainingQuantity($lot);
         $listed = $service->listedQuantity($lot);
         $available = $service->availableQuantity($lot);
+        $listings = $lot->listingItems()->with('listing')->orderByDesc('id')->get();
 
-        return view('ledger.lots.show', compact('lot', 'transactions', 'remaining', 'listed', 'available'));
+        return view('ledger.lots.show', compact('lot', 'transactions', 'remaining', 'listed', 'available', 'listings'));
     }
 
     public function edit(BenefitLot $lot): View

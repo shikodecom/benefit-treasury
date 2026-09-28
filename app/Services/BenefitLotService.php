@@ -120,6 +120,9 @@ class BenefitLotService
             if (BigDecimal::of($remaining)->isLessThanOrEqualTo(0)) {
                 throw ValidationException::withMessages(['lot' => '失効対象の残数がありません。']);
             }
+            if (BigDecimal::of($this->listedQuantity($lockedLot))->isGreaterThan(0)) {
+                throw ValidationException::withMessages(['lot' => '出品中の特典を先に取り下げてください。']);
+            }
             $this->transactions->record($lockedLot->account, 'expire', $remaining, $date, null, null, '手動の失効処理', $lockedLot);
         });
     }
@@ -131,6 +134,9 @@ class BenefitLotService
             $lockedLot = BenefitLot::query()->lockForUpdate()->findOrFail($lot->id);
             if ($lockedLot->cancelled_at !== null) {
                 throw ValidationException::withMessages(['lot' => 'このロットはすでに登録取消済みです。']);
+            }
+            if (BigDecimal::of($this->listedQuantity($lockedLot))->isGreaterThan(0)) {
+                throw ValidationException::withMessages(['lot' => '出品中の特典を先に取り下げてください。']);
             }
             if ($lockedLot->transactions()->count() !== 1 || $lockedLot->transactions()->first()->transaction_type !== 'earn') {
                 throw ValidationException::withMessages(['lot' => '利用履歴があるロットは登録取消できません。調整で訂正してください。']);

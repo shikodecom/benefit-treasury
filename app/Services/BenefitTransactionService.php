@@ -99,8 +99,11 @@ class BenefitTransactionService
         });
     }
 
-    public function reverse(BenefitTransaction $original): BenefitTransaction
+    public function reverse(BenefitTransaction $original, bool $listingSaleCorrection = false): BenefitTransaction
     {
+        if ($original->transaction_type === 'sell' && $original->listing_id !== null && ! $listingSaleCorrection) {
+            throw ValidationException::withMessages(['transaction' => '出品詳細から売却取消を行ってください。']);
+        }
         if ($original->transaction_type === 'reversal') {
             throw ValidationException::withMessages(['transaction' => '取消取引を再び取り消すことはできません。']);
         }

@@ -9,6 +9,8 @@
     <div class="dashboard-lot-actions">
         <form method="post" action="{{ route('dashboard.lots.policy', $lot) }}" class="policy-form">@csrf<label for="policy-{{ $section }}-{{ $lot->id }}">方針</label><select id="policy-{{ $section }}-{{ $lot->id }}" name="action_policy">@foreach(['self_use'=>'自分で使う','sell_now'=>'すぐ売る','hold'=>'保留','bundle'=>'セット販売','do_not_sell'=>'売らない','transfer_to_points'=>'ポイント移行','undecided'=>'未設定'] as $value=>$label)<option value="{{ $value }}" @selected($lot->action_policy === $value)>{{ $label }}</option>@endforeach</select><button class="secondary" type="submit">保存</button></form>
         <a class="button secondary" href="{{ route('ledger.lots.show', $lot) }}">詳細・利用</a>
+        @if((float)$lot->available_quantity > 0 && $lot->transfer_restriction !== 'non_transferable')<a class="button secondary" href="{{ route('listings.create', ['lot_id'=>$lot->id]) }}">出品する</a>@endif
+        @if((float)$lot->listed_quantity > 0)<a class="button secondary" href="{{ route('listings.index') }}">出品を確認</a>@endif
         @if($days !== null && $days < 0)<form method="post" action="{{ route('ledger.lots.expire', $lot) }}" onsubmit="return confirm('このロットの残数すべてを失効として記録しますか？')">@csrf<button class="danger" type="submit">失効処理</button></form>@endif
     </div>
 </article>
