@@ -14,6 +14,17 @@
 @if($overdueTransfers->isNotEmpty())<section class="dashboard-section"><div class="section-head"><h2>着弾確認が必要な移行 <span class="count">{{ $overdueTransfers->count() }}</span></h2></div><div class="dashboard-items">@foreach($overdueTransfers as $step)<article class="card"><strong>{{ $step->fromAccount->program->name }} → {{ $step->toAccount->program->name }}</strong><p>着弾予定 {{ $step->expected_complete_at }} · 受取予定 {{ $step->expected_destination_quantity ?? '未設定' }} {{ $step->toAccount->program->unit_name }}</p><p class="dashboard-recommendation">推奨: 着弾確認</p><a class="button secondary" href="{{ route('transfers.show', $step->transfer_group_id) }}">詳細</a></article>@endforeach</div></section>@endif
 <p class="help">30日以内には7日以内を含みます。出品中は出品件数と設定済み出品価格の合計、他はロット件数と方針別の概算価値です。価値未設定は合計に含めません。</p>
 
+@if($balanceAccounts->isNotEmpty())
+<section class="dashboard-section" aria-labelledby="heading-balances">
+    <div class="section-head"><h2 id="heading-balances">口座残高 <span class="count">{{ $balanceAccounts->count() }}</span></h2><a href="{{ route('ledger.home') }}">保有一覧</a></div>
+    <div class="dashboard-items">
+        @foreach($balanceAccounts as $account)
+            <article class="card"><strong>{{ $account->program->name }}{{ $account->account_label ? ' · '.$account->account_label : '' }}</strong><p>{{ number_format((float) $account->current_balance, 4, '.', '') }} {{ $account->program->unit_name }}</p><a class="button secondary" href="{{ route('ledger.accounts.transactions', $account) }}">取引履歴</a></article>
+        @endforeach
+    </div>
+</section>
+@endif
+
 <form class="card filters" method="get" action="{{ route('dashboard.index') }}">
     <div class="field"><label for="member">名義</label><select id="member" name="member"><option value="">すべて</option><option value="shared" @selected(($filters['member'] ?? '') === 'shared')>家族共通</option>@foreach($members as $member)<option value="{{ $member->id }}" @selected((string)($filters['member'] ?? '') === (string)$member->id)>{{ $member->display_name }}</option>@endforeach</select></div>
     <div class="field"><label for="category">カテゴリ</label><select id="category" name="category"><option value="">すべて</option>@foreach(['point'=>'ポイント','mile'=>'マイル','e_money'=>'電子マネー','gift'=>'商品券・ギフト','shareholder_benefit'=>'株主優待','coupon'=>'クーポン','discount'=>'割引','campaign'=>'キャンペーン特典','other'=>'その他'] as $value=>$label)<option value="{{ $value }}" @selected(($filters['category'] ?? '') === $value)>{{ $label }}</option>@endforeach</select></div>
