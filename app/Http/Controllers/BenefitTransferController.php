@@ -6,13 +6,14 @@ use App\Models\BenefitAccount;
 use App\Models\BenefitProgram;
 use App\Models\BenefitTransferGroup;
 use App\Models\BenefitTransferStep;
-use App\Services\ConversionRuleService;
 use App\Models\HouseholdMember;
 use App\Services\BenefitReadService;
 use App\Services\BenefitTransferService;
+use App\Services\ConversionRuleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class BenefitTransferController extends Controller
@@ -20,12 +21,16 @@ class BenefitTransferController extends Controller
     public function index(Request $request, BenefitTransferService $service): View
     {
         $status = $request->query('status', 'processing');
-        if (! in_array($status, ['processing', 'planned', 'overdue', 'completed', 'error', 'cancelled', 'all'], true)) $status = 'processing';
+        if (! in_array($status, ['processing', 'planned', 'overdue', 'completed', 'error', 'cancelled', 'all'], true)) {
+            $status = 'processing';
+        }
         $query = BenefitTransferGroup::query()->with(['steps.fromAccount.program', 'steps.toAccount.program', 'steps.planningEquivalentProgram', 'targetProgram']);
         if ($status === 'overdue') {
             $query->whereHas('steps', fn ($query) => $query->where('status', 'processing')
                 ->whereDate('expected_complete_at', '<', now('Asia/Tokyo')->toDateString()));
-        } elseif ($status !== 'all') $query->where('status', $status);
+        } elseif ($status !== 'all') {
+            $query->where('status', $status);
+        }
         $groups = $query->orderByDesc('id')->paginate(20)->withQueryString();
 
         return view('transfers.index', compact('groups', 'status'));
@@ -48,7 +53,7 @@ class BenefitTransferController extends Controller
             'expected_complete_at' => ['nullable', 'date'], 'memo' => ['nullable', 'string'],
         ]);
         if (isset($data['target_quantity']) && ! isset($data['target_program_id'])) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['target_program_id' => '目標数量を入力する場合は最終目的制度も選択してください。']);
+            throw ValidationException::withMessages(['target_program_id' => '目標数量を入力する場合は最終目的制度も選択してください。']);
         }
         $group = $service->createGroup($data);
 
@@ -69,7 +74,9 @@ class BenefitTransferController extends Controller
         $accounts = BenefitAccount::query()->with(['program', 'householdMember'])->where('active', true)
             ->whereHas('program', fn ($query) => $query->where('active', true))->orderBy('id')->get();
         $balances = [];
-        foreach ($accounts as $account) $balances[$account->id] = $read->accountBalance($account->id);
+        foreach ($accounts as $account) {
+            $balances[$account->id] = $read->accountBalance($account->id);
+        }
         $rules = $conversionRules->currentRules();
         $programs = BenefitProgram::query()->where('active', true)->orderBy('name')->get();
         $last = $group->steps()->orderByDesc('sequence_no')->first();

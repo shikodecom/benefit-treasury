@@ -40,7 +40,7 @@ DB仕様の正本は [Issue #2](https://github.com/shikodecom/benefit-treasury/i
 
 `/benefits` から残高を確認し、`/transactions` で初期残高・獲得・利用・調整を記録します。初期残高は取引がない口座にだけ登録できます。取引の訂正は削除ではなく取消取引を追加します。`/lots` では期限付き特典を取得し、ロット単位で利用・失効・取得取消を記録できます。残高と残数は取引から計算します。ロット付き残高はロット詳細から利用してください。
 
-口座の取引履歴から複数ロットの利用を期限順に配分でき、配分数量を手動で変更できます。Excel取込は後続Issueの対象です。
+口座の取引履歴から複数ロットの利用を期限順に配分でき、配分数量を手動で変更できます。`/imports/excel` では XLSX を解析・確認してから取込を実行します。シート別の対応範囲は [docs/excel-import.md](docs/excel-import.md) を参照してください。
 
 ## 出品・売却
 
@@ -57,3 +57,7 @@ DB仕様の正本は [Issue #2](https://github.com/shikodecom/benefit-treasury/i
 ## 期限管理
 
 ログイン後の `/dashboard` に、期限切れ、7日以内、30日以内、出品中の集計と対応候補を表示します。名義・カテゴリ・方針・期限で絞り込み、ロットの方針をその場で保存できます。期限切れの失効処理は確認後に手動で記録します。優先度と概算価値の判定は [docs/dashboard-priority.md](docs/dashboard-priority.md) を参照してください。
+
+## 横断検索と通知
+
+`/search` で保有ロット、ロットなし残高、取引、出品、移行、交換ルールを検索できます。条件は [docs/search-filters.md](docs/search-filters.md) を参照してください。`/notifications` で期限・着弾予定日の通知を確認し、既読・非表示・通知設定を操作できます。サーバーで `php artisan schedule:run` を毎分起動し、JST 8時の通知生成を実行してください。通知条件は [docs/notification-rules.md](docs/notification-rules.md)、総合テストの残作業は [docs/mvp-test-plan.md](docs/mvp-test-plan.md) を参照してください。

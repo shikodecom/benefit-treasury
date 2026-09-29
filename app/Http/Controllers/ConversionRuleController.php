@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\BenefitProgram;
+use App\Models\BenefitTransferStep;
 use App\Models\ConversionRule;
-use App\Models\ConversionRuleGroup;
 use App\Services\ConversionRuleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,15 +25,24 @@ class ConversionRuleController extends Controller
         $status = $filters['status'] ?? 'current';
         $today = now('Asia/Tokyo')->toDateString();
         $query = ConversionRule::query()->with(['fromProgram', 'toProgram', 'group']);
-        if ($status === 'current') $query->where('active', true)
-            ->where(fn ($query) => $query->whereNull('valid_from')->orWhereDate('valid_from', '<=', $today))
-            ->where(fn ($query) => $query->whereNull('valid_to')->orWhereDate('valid_to', '>=', $today))
-            ->where(fn ($query) => $query->where('campaign_only', false)
-                ->orWhere(fn ($query) => $query->whereNotNull('valid_from')->whereNotNull('valid_to')));
-        elseif ($status === 'active' || $status === 'inactive') $query->where('active', $status === 'active');
-        if (! empty($filters['from_program_id'])) $query->where('from_program_id', $filters['from_program_id']);
-        if (! empty($filters['to_program_id'])) $query->where('to_program_id', $filters['to_program_id']);
-        if (isset($filters['campaign'])) $query->where('campaign_only', $filters['campaign'] === '1');
+        if ($status === 'current') {
+            $query->where('active', true)
+                ->where(fn ($query) => $query->whereNull('valid_from')->orWhereDate('valid_from', '<=', $today))
+                ->where(fn ($query) => $query->whereNull('valid_to')->orWhereDate('valid_to', '>=', $today))
+                ->where(fn ($query) => $query->where('campaign_only', false)
+                    ->orWhere(fn ($query) => $query->whereNotNull('valid_from')->whereNotNull('valid_to')));
+        } elseif ($status === 'active' || $status === 'inactive') {
+            $query->where('active', $status === 'active');
+        }
+        if (! empty($filters['from_program_id'])) {
+            $query->where('from_program_id', $filters['from_program_id']);
+        }
+        if (! empty($filters['to_program_id'])) {
+            $query->where('to_program_id', $filters['to_program_id']);
+        }
+        if (isset($filters['campaign'])) {
+            $query->where('campaign_only', $filters['campaign'] === '1');
+        }
         if (! empty($filters['q'])) {
             $keyword = trim($filters['q']);
             $query->where(fn ($query) => $query->where('campaign_name', 'like', "%{$keyword}%")
@@ -69,7 +78,7 @@ class ConversionRuleController extends Controller
     public function show(ConversionRule $rule, ConversionRuleService $service): View
     {
         $rule->load(['fromProgram', 'toProgram', 'group.rules', 'group.fromProgram', 'group.toProgram']);
-        $usedCount = \App\Models\BenefitTransferStep::query()->where('conversion_rule_id', $rule->id)->count();
+        $usedCount = BenefitTransferStep::query()->where('conversion_rule_id', $rule->id)->count();
         $overlapCount = $service->overlapCount($rule);
         $current = $service->isCurrentlyValid($rule);
 
@@ -125,11 +134,13 @@ class ConversionRuleController extends Controller
             'instructions' => ['nullable', 'string'], 'official_url' => ['nullable', 'url:http,https'],
             'notes' => ['nullable', 'string'], 'active' => ['nullable', 'boolean'],
         ];
-        if ($newGroup) $rules += [
-            'from_program_id' => ['required', 'integer', Rule::exists('benefit_programs', 'id')],
-            'to_program_id' => ['required', 'integer', 'different:from_program_id', Rule::exists('benefit_programs', 'id')],
-            'name' => ['nullable', 'string', 'max:200'],
-        ];
+        if ($newGroup) {
+            $rules += [
+                'from_program_id' => ['required', 'integer', Rule::exists('benefit_programs', 'id')],
+                'to_program_id' => ['required', 'integer', 'different:from_program_id', Rule::exists('benefit_programs', 'id')],
+                'name' => ['nullable', 'string', 'max:200'],
+            ];
+        }
         $data = $request->validate($rules);
         $data['campaign_only'] = $request->boolean('campaign_only');
         $data['active'] = $request->boolean('active');

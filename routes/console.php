@@ -1,8 +1,10 @@
 <?php
 
 use App\Models\User;
+use App\Services\BenefitNotificationService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('benefit:db-check', function (): int {
     try {
@@ -37,3 +39,10 @@ Artisan::command('benefit:create-admin', function (): int {
 
     return 0;
 })->purpose('Create or update the administrator login');
+
+Artisan::command('benefit:notifications', function (): void {
+    $count = app(BenefitNotificationService::class)->generate();
+    $this->info("Created {$count} notifications.");
+})->purpose('Generate due benefit and transfer notifications');
+
+Schedule::command('benefit:notifications')->dailyAt('08:00')->timezone('Asia/Tokyo')->withoutOverlapping();

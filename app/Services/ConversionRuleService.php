@@ -18,7 +18,9 @@ class ConversionRuleService
     {
         $from = BenefitProgram::query()->findOrFail($data['from_program_id']);
         $to = BenefitProgram::query()->findOrFail($data['to_program_id']);
-        if ($from->id === $to->id) throw ValidationException::withMessages(['to_program_id' => '異なる制度を選択してください。']);
+        if ($from->id === $to->id) {
+            throw ValidationException::withMessages(['to_program_id' => '異なる制度を選択してください。']);
+        }
         $group = new ConversionRuleGroup;
         $group->from_program_id = $from->id;
         $group->to_program_id = $to->id;
@@ -52,7 +54,9 @@ class ConversionRuleService
             $rule->version_no = ((int) $group->rules()->max('version_no')) + 1;
             $rule->from_program_id = $group->from_program_id;
             $rule->to_program_id = $group->to_program_id;
-            foreach ($values as $field => $value) $rule->{$field} = $value;
+            foreach ($values as $field => $value) {
+                $rule->{$field} = $value;
+            }
             $rule->save();
             if ($deactivatePrevious && $previous) {
                 $previous->active = false;
@@ -73,7 +77,9 @@ class ConversionRuleService
         if (! empty($data['official_url']) && ! preg_match('~^https?://~i', $data['official_url'])) {
             throw ValidationException::withMessages(['official_url' => '公式 URL は http または https にしてください。']);
         }
-        foreach ($data as $field => $value) $rule->{$field} = $value;
+        foreach ($data as $field => $value) {
+            $rule->{$field} = $value;
+        }
         $rule->save();
 
         return $rule;
@@ -121,9 +127,15 @@ class ConversionRuleService
         $minimum = $rule->minimum_from_quantity ? BigDecimal::of($rule->minimum_from_quantity) : null;
         $maximum = $rule->maximum_from_quantity ? BigDecimal::of($rule->maximum_from_quantity) : null;
         $increment = $rule->increment_from_quantity ? BigDecimal::of($rule->increment_from_quantity) : null;
-        if ($minimum && $source->isLessThan($minimum)) throw ValidationException::withMessages(['source_quantity' => '交換の最低数量に達していません。']);
-        if ($maximum && $source->isGreaterThan($maximum)) throw ValidationException::withMessages(['source_quantity' => '交換の最大数量を超えています。']);
-        if ($increment && ! $source->remainder($increment)->isZero()) throw ValidationException::withMessages(['source_quantity' => '交換単位に合う数量を入力してください。']);
+        if ($minimum && $source->isLessThan($minimum)) {
+            throw ValidationException::withMessages(['source_quantity' => '交換の最低数量に達していません。']);
+        }
+        if ($maximum && $source->isGreaterThan($maximum)) {
+            throw ValidationException::withMessages(['source_quantity' => '交換の最大数量を超えています。']);
+        }
+        if ($increment && ! $source->remainder($increment)->isZero()) {
+            throw ValidationException::withMessages(['source_quantity' => '交換単位に合う数量を入力してください。']);
+        }
 
         return (string) $source->toScale(4);
     }
@@ -149,9 +161,13 @@ class ConversionRuleService
         $this->decimal((string) ($values['from_quantity'] ?? ''), true, 'from_quantity');
         $this->decimal((string) ($values['to_quantity'] ?? ''), false, 'to_quantity');
         foreach (['minimum_from_quantity', 'maximum_from_quantity', 'fee_quantity'] as $field) {
-            if ($values[$field] !== null) $this->decimal((string) $values[$field], false, $field);
+            if ($values[$field] !== null) {
+                $this->decimal((string) $values[$field], false, $field);
+            }
         }
-        if ($values['increment_from_quantity'] !== null) $this->decimal((string) $values['increment_from_quantity'], true, 'increment_from_quantity');
+        if ($values['increment_from_quantity'] !== null) {
+            $this->decimal((string) $values['increment_from_quantity'], true, 'increment_from_quantity');
+        }
         if ($values['minimum_from_quantity'] !== null && $values['maximum_from_quantity'] !== null
             && BigDecimal::of($values['maximum_from_quantity'])->isLessThan($values['minimum_from_quantity'])) {
             throw ValidationException::withMessages(['maximum_from_quantity' => '最大数量は最低数量以上にしてください。']);
@@ -176,7 +192,9 @@ class ConversionRuleService
         try {
             $decimal = BigDecimal::of($value);
             if (($positive ? $decimal->isLessThanOrEqualTo(0) : $decimal->isLessThan(0))
-                || $decimal->getScale() > 4 || $decimal->isGreaterThanOrEqualTo('100000000000000')) throw new \InvalidArgumentException;
+                || $decimal->getScale() > 4 || $decimal->isGreaterThanOrEqualTo('100000000000000')) {
+                throw new \InvalidArgumentException;
+            }
 
             return $decimal;
         } catch (\Throwable) {

@@ -16,9 +16,13 @@ class BenefitListingController extends Controller
     public function index(Request $request, BenefitListingService $service): View
     {
         $status = $request->query('status', 'listed');
-        if (! in_array($status, ['listed', 'draft', 'sold', 'ended_unsold', 'cancelled', 'all'], true)) $status = 'listed';
+        if (! in_array($status, ['listed', 'draft', 'sold', 'ended_unsold', 'cancelled', 'all'], true)) {
+            $status = 'listed';
+        }
         $query = BenefitListing::query()->with(['items.lot.account.program', 'items.lot.account.householdMember']);
-        if ($status !== 'all') $query->where('status', $status);
+        if ($status !== 'all') {
+            $query->where('status', $status);
+        }
         $listings = $query->orderByDesc('id')->paginate(20)->withQueryString();
 
         return view('listings.index', ['listings' => $listings, 'status' => $status, 'summary' => $service->salesSummary()]);

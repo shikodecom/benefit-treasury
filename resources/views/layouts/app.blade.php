@@ -16,12 +16,15 @@
             <nav class="nav" aria-label="メインナビゲーション">
                 <a href="{{ route('dashboard.index') }}">ダッシュボード</a>
                 <a href="{{ route('ledger.home') }}">保有</a>
+                <a href="{{ route('search.index') }}">横断検索</a>
                 <a href="{{ route('ledger.transactions.index') }}">取引</a>
                 <a href="{{ route('ledger.lots.index') }}">ロット</a>
                 <a href="{{ route('listings.index') }}">出品</a>
                 <a href="{{ route('transfers.index') }}">移行</a>
                 <a href="{{ route('conversion.rules.index') }}">交換ルール</a>
                 <a href="{{ route('conversion.routes.index') }}">交換ルート</a>
+                <a href="{{ route('imports.index') }}">Excel取込</a>
+                <a href="{{ route('notifications.index') }}">通知 @php($unreadCount = \App\Models\Notification::query()->whereNull('read_at')->whereNull('dismissed_at')->count())@if($unreadCount)({{ $unreadCount }})@endif</a>
                 <a href="{{ route('settings.members.index') }}">名義</a>
                 <a href="{{ route('settings.programs.index') }}">制度</a>
                 <a href="{{ route('settings.accounts.index') }}">口座</a>
