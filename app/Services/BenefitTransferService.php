@@ -9,14 +9,14 @@ use App\Models\BenefitTransferGroup;
 use App\Models\BenefitTransferStep;
 use App\Models\ConversionRule;
 use Brick\Math\BigDecimal;
-use Brick\Math\RoundingMode;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class BenefitTransferService
 {
-    public function __construct(private readonly BenefitReadService $read, private readonly BenefitTransactionService $transactions) {}
+    public function __construct(private readonly BenefitReadService $read, private readonly BenefitTransactionService $transactions,
+        private readonly ConversionRuleService $conversionRules) {}
 
     public function createGroup(array $data): BenefitTransferGroup
     {
@@ -204,15 +204,7 @@ class BenefitTransferService
 
     public function calculateExpectedDestination(ConversionRule $rule, string $sourceQuantity): string
     {
-        $source = BigDecimal::of($this->quantity($sourceQuantity, true));
-        $minimum = $rule->minimum_from_quantity ? BigDecimal::of($rule->minimum_from_quantity) : null;
-        $maximum = $rule->maximum_from_quantity ? BigDecimal::of($rule->maximum_from_quantity) : null;
-        $increment = $rule->increment_from_quantity ? BigDecimal::of($rule->increment_from_quantity) : null;
-        if ($minimum && $source->isLessThan($minimum)) throw ValidationException::withMessages(['source_quantity' => '交換の最低数量に達していません。']);
-        if ($maximum && $source->isGreaterThan($maximum)) throw ValidationException::withMessages(['source_quantity' => '交換の最大数量を超えています。']);
-        if ($increment && ! $source->remainder($increment)->isZero()) throw ValidationException::withMessages(['source_quantity' => '交換単位に合う数量を入力してください。']);
-
-        return (string) $source->multipliedBy($rule->to_quantity)->dividedBy($rule->from_quantity, 4, RoundingMode::DOWN);
+        return $this->conversionRules->calculateDestination($rule, $sourceQuantity);
     }
 
     public function calculateGroupStatus(BenefitTransferGroup $group): string
@@ -256,9 +248,8 @@ class BenefitTransferService
 
     private function validateRule(ConversionRule $rule, BenefitAccount $from, BenefitAccount $to): void
     {
-        $today = now('Asia/Tokyo')->toDateString();
-        if (! $rule->active || $rule->from_program_id !== $from->program_id || $rule->to_program_id !== $to->program_id
-            || $rule->valid_from && $rule->valid_from > $today || $rule->valid_to && $rule->valid_to < $today) {
+        if (! $this->conversionRules->isCurrentlyValid($rule)
+            || $rule->from_program_id !== $from->program_id || $rule->to_program_id !== $to->program_id) {
             throw ValidationException::withMessages(['conversion_rule_id' => '現在利用できる交換ルールを選択してください。']);
         }
     }

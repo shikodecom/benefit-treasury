@@ -20,6 +20,8 @@
                 <a href="{{ route('ledger.lots.index') }}">ロット</a>
                 <a href="{{ route('listings.index') }}">出品</a>
                 <a href="{{ route('transfers.index') }}">移行</a>
+                <a href="{{ route('conversion.rules.index') }}">交換ルール</a>
+                <a href="{{ route('conversion.routes.index') }}">交換ルート</a>
                 <a href="{{ route('settings.members.index') }}">名義</a>
                 <a href="{{ route('settings.programs.index') }}">制度</a>
                 <a href="{{ route('settings.accounts.index') }}">口座</a>

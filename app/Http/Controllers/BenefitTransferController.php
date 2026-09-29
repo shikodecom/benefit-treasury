@@ -6,7 +6,7 @@ use App\Models\BenefitAccount;
 use App\Models\BenefitProgram;
 use App\Models\BenefitTransferGroup;
 use App\Models\BenefitTransferStep;
-use App\Models\ConversionRule;
+use App\Services\ConversionRuleService;
 use App\Models\HouseholdMember;
 use App\Services\BenefitReadService;
 use App\Services\BenefitTransferService;
@@ -64,16 +64,13 @@ class BenefitTransferController extends Controller
         return view('transfers.show', compact('group', 'steps'));
     }
 
-    public function stepCreate(BenefitTransferGroup $group, BenefitReadService $read): View
+    public function stepCreate(BenefitTransferGroup $group, BenefitReadService $read, ConversionRuleService $conversionRules): View
     {
         $accounts = BenefitAccount::query()->with(['program', 'householdMember'])->where('active', true)
             ->whereHas('program', fn ($query) => $query->where('active', true))->orderBy('id')->get();
         $balances = [];
         foreach ($accounts as $account) $balances[$account->id] = $read->accountBalance($account->id);
-        $rules = ConversionRule::query()->with(['fromProgram', 'toProgram'])->where('active', true)
-            ->where(fn ($query) => $query->whereNull('valid_from')->orWhereDate('valid_from', '<=', now('Asia/Tokyo')->toDateString()))
-            ->where(fn ($query) => $query->whereNull('valid_to')->orWhereDate('valid_to', '>=', now('Asia/Tokyo')->toDateString()))
-            ->orderBy('id')->get();
+        $rules = $conversionRules->currentRules();
         $programs = BenefitProgram::query()->where('active', true)->orderBy('name')->get();
         $last = $group->steps()->orderByDesc('sequence_no')->first();
 

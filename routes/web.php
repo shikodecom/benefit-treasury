@@ -9,6 +9,8 @@ use App\Http\Controllers\BenefitListingController;
 use App\Http\Controllers\BenefitProgramController;
 use App\Http\Controllers\BenefitTransactionController;
 use App\Http\Controllers\BenefitTransferController;
+use App\Http\Controllers\ConversionRuleController;
+use App\Http\Controllers\ConversionRouteController;
 use App\Http\Controllers\HouseholdMemberController;
 use Illuminate\Support\Facades\Route;
 
@@ -68,6 +70,19 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/transfer-steps/{step}/refund', [BenefitTransferController::class, 'cancelWithRefund'])->name('transfers.steps.refund');
     Route::post('/transfer-steps/{step}/error', [BenefitTransferController::class, 'markError'])->name('transfers.steps.error');
     Route::post('/transfer-steps/{step}/expected-date', [BenefitTransferController::class, 'updateExpectedDate'])->name('transfers.steps.expected-date');
+    Route::get('/conversion-rules', [ConversionRuleController::class, 'index'])->name('conversion.rules.index');
+    Route::get('/conversion-rules/create', [ConversionRuleController::class, 'create'])->name('conversion.rules.create');
+    Route::post('/conversion-rules', [ConversionRuleController::class, 'store'])->name('conversion.rules.store');
+    Route::get('/conversion-rules/{rule}', [ConversionRuleController::class, 'show'])->name('conversion.rules.show');
+    Route::get('/conversion-rules/{rule}/new-version', [ConversionRuleController::class, 'newVersion'])->name('conversion.rules.new-version');
+    Route::post('/conversion-rules/{rule}/versions', [ConversionRuleController::class, 'storeVersion'])->name('conversion.rules.versions.store');
+    Route::post('/conversion-rules/{rule}/notes', [ConversionRuleController::class, 'updateNotes'])->name('conversion.rules.notes');
+    Route::post('/conversion-rules/{rule}/deactivate', [ConversionRuleController::class, 'deactivate'])->name('conversion.rules.deactivate');
+    Route::get('/conversion-routes', [ConversionRouteController::class, 'index'])->name('conversion.routes.index');
+    Route::get('/conversion-routes/create', [ConversionRouteController::class, 'create'])->name('conversion.routes.create');
+    Route::post('/conversion-routes', [ConversionRouteController::class, 'store'])->name('conversion.routes.store');
+    Route::get('/conversion-routes/{route}', [ConversionRouteController::class, 'show'])->name('conversion.routes.show');
+    Route::post('/conversion-routes/{route}/deactivate', [ConversionRouteController::class, 'deactivate'])->name('conversion.routes.deactivate');
     Route::view('/settings/benefits', 'settings.home')->name('settings.home');
 
     Route::get('/settings/household-members', [HouseholdMemberController::class, 'index'])->name('settings.members.index');

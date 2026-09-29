@@ -50,6 +50,10 @@ DB仕様の正本は [Issue #2](https://github.com/shikodecom/benefit-treasury/i
 
 `/transfers` で移行計画と複数ステップを管理します。申請時に移行元の残高を減らし、着弾確認時に実績数量を移行先へ加算します。予定日超過、返還による取消、交換ルールに基づく予定数量も扱えます。数量と状態の定義は [docs/transfer-state.md](docs/transfer-state.md) を参照してください。
 
+## 交換ルール・ルート
+
+`/conversion-rules` で交換条件を版ごとに管理し、`/conversion-routes` でよく使う経路を保存・概算できます。期間内のルールだけを移行計画の候補に表示します。版管理と概算の条件は [docs/conversion-rules.md](docs/conversion-rules.md) を参照してください。
+
 ## 期限管理
 
 ログイン後の `/dashboard` に、期限切れ、7日以内、30日以内、出品中の集計と対応候補を表示します。名義・カテゴリ・方針・期限で絞り込み、ロットの方針をその場で保存できます。期限切れの失効処理は確認後に手動で記録します。優先度と概算価値の判定は [docs/dashboard-priority.md](docs/dashboard-priority.md) を参照してください。
