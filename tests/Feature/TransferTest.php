@@ -4,12 +4,13 @@ namespace Tests\Feature;
 
 use App\Models\BenefitAccount;
 use App\Models\BenefitProgram;
+use App\Models\BenefitTransferGroup;
 use App\Models\BenefitTransferStep;
 use App\Models\ConversionRule;
 use App\Models\ConversionRuleGroup;
 use App\Models\User;
-use App\Services\BenefitLotService;
 use App\Services\BenefitListingService;
+use App\Services\BenefitLotService;
 use App\Services\BenefitReadService;
 use App\Services\BenefitTransactionService;
 use App\Services\BenefitTransferService;
@@ -199,7 +200,7 @@ class TransferTest extends TestCase
             ->assertSessionHasErrors('target_program_id');
         $this->post(route('transfers.store'), ['name' => 'JQへ', 'target_program_id' => $to->program_id,
             'target_quantity' => '100'])->assertRedirect();
-        $group = \App\Models\BenefitTransferGroup::query()->firstOrFail();
+        $group = BenefitTransferGroup::query()->firstOrFail();
         $this->post(route('transfers.steps.store', $group), [
             'from_account_id' => $from->id, 'to_account_id' => $to->id,
             'source_quantity' => '100', 'expected_destination_quantity' => '100',
@@ -230,7 +231,9 @@ class TransferTest extends TestCase
             $accounts[] = $account;
         }
         app(BenefitTransactionService::class)->createOpeningBalance($accounts[0], '2026-09-28', '2000', null);
-        if ($count > 2) app(BenefitTransactionService::class)->createOpeningBalance($accounts[1], '2026-09-28', '2000', null);
+        if ($count > 2) {
+            app(BenefitTransactionService::class)->createOpeningBalance($accounts[1], '2026-09-28', '2000', null);
+        }
 
         return $accounts;
     }

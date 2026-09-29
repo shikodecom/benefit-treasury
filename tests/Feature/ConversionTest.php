@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\BenefitAccount;
 use App\Models\BenefitProgram;
+use App\Models\ConversionRouteTemplate;
+use App\Models\ConversionRule;
 use App\Models\User;
 use App\Services\BenefitTransactionService;
 use App\Services\BenefitTransferService;
@@ -103,13 +105,13 @@ class ConversionTest extends TestCase
             $routes->createRoute(['name' => '循環'], [['rule_group_id' => $ab->id], ['rule_group_id' => $ba->id]]);
             $this->fail('Loop must be rejected');
         } catch (ValidationException) {
-            $this->assertSame(1, \App\Models\ConversionRouteTemplate::query()->count());
+            $this->assertSame(1, ConversionRouteTemplate::query()->count());
         }
         try {
             $routes->createRoute(['name' => '不連続'], [['rule_group_id' => $bc->id], ['rule_group_id' => $ab->id]]);
             $this->fail('Discontinuity must be rejected');
         } catch (ValidationException) {
-            $this->assertSame(1, \App\Models\ConversionRouteTemplate::query()->count());
+            $this->assertSame(1, ConversionRouteTemplate::query()->count());
         }
         $rules->deactivate($second);
         $this->assertFalse($routes->canUse($route));
@@ -151,18 +153,18 @@ class ConversionTest extends TestCase
             'from_program_id' => $from->id, 'to_program_id' => $to->id,
             'from_quantity' => '100', 'to_quantity' => '70', 'active' => '1',
         ])->assertRedirect();
-        $rule = \App\Models\ConversionRule::query()->firstOrFail();
+        $rule = ConversionRule::query()->firstOrFail();
         $this->post(route('conversion.routes.store'), [
             'name' => '通常ルート', 'target_program_id' => $to->id, 'active' => '1',
             'steps' => [['rule_group_id' => $rule->rule_group_id, 'preferred_rule_id' => $rule->id]],
         ])->assertRedirect();
-        $route = \App\Models\ConversionRouteTemplate::query()->firstOrFail();
+        $route = ConversionRouteTemplate::query()->firstOrFail();
         $this->get(route('conversion.routes.show', ['route' => $route, 'quantity' => '1000']))
             ->assertOk()->assertSee('700.0000');
         $this->post(route('conversion.rules.versions.store', $rule), [
             'from_quantity' => '100', 'to_quantity' => '80', 'active' => '1',
         ])->assertRedirect();
-        $this->assertSame(2, \App\Models\ConversionRule::query()->count());
+        $this->assertSame(2, ConversionRule::query()->count());
     }
 
     private function programs(int $count): array
@@ -187,7 +189,9 @@ class ConversionTest extends TestCase
         $account->program_id = $program->id;
         $account->active = true;
         $account->save();
-        if ($opening !== '0') app(BenefitTransactionService::class)->createOpeningBalance($account, '2026-09-28', $opening, null);
+        if ($opening !== '0') {
+            app(BenefitTransactionService::class)->createOpeningBalance($account, '2026-09-28', $opening, null);
+        }
 
         return $account;
     }

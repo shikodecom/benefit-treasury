@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Domain\BenefitValues;
 use App\Models\BenefitLot;
+use App\Models\BenefitTransferStep;
 use App\Models\HouseholdMember;
 use App\Services\BenefitDashboardService;
 use App\Services\BenefitTransferService;
+use Brick\Math\BigDecimal;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -27,13 +29,13 @@ class BenefitDashboardController extends Controller
         $week = $service->expiringWithin($lots, 7);
         $month = $service->expiringWithin($lots, 30)
             ->filter(fn ($lot) => $service->daysUntilExpiry($lot) > 7)->values();
-        $pendingTransfers = \App\Models\BenefitTransferStep::query()->with('planningEquivalentProgram')
+        $pendingTransfers = BenefitTransferStep::query()->with('planningEquivalentProgram')
             ->where('status', 'processing')->get();
         $overdueTransfers = $transfers->overdueSteps();
         $equivalents = $pendingTransfers->filter(fn ($step) => $step->planning_equivalent_program_id !== null)
             ->groupBy('planning_equivalent_program_id')->map(fn ($items) => [
                 'program' => $items->first()->planningEquivalentProgram,
-                'quantity' => (string) $items->reduce(fn ($sum, $item) => $sum->plus($item->planning_equivalent_quantity), \Brick\Math\BigDecimal::zero())->toScale(4),
+                'quantity' => (string) $items->reduce(fn ($sum, $item) => $sum->plus($item->planning_equivalent_quantity), BigDecimal::zero())->toScale(4),
             ]);
 
         return view('dashboard.index', [

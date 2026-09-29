@@ -19,14 +19,18 @@ class ConversionRouteService
     public function createRoute(array $data, array $steps): ConversionRouteTemplate
     {
         return DB::transaction(function () use ($data, $steps): ConversionRouteTemplate {
-            if ($steps === []) throw ValidationException::withMessages(['steps' => '交換ルールを1件以上選択してください。']);
+            if ($steps === []) {
+                throw ValidationException::withMessages(['steps' => '交換ルールを1件以上選択してください。']);
+            }
             $route = new ConversionRouteTemplate;
             $route->name = $data['name'];
             $route->target_program_id = $data['target_program_id'] ?? null;
             $route->description = $data['description'] ?? null;
             $route->active = $data['active'] ?? true;
             $route->save();
-            foreach ($steps as $step) $this->addStep($route, $step['rule_group_id'], $step['preferred_rule_id'] ?? null);
+            foreach ($steps as $step) {
+                $this->addStep($route, $step['rule_group_id'], $step['preferred_rule_id'] ?? null);
+            }
             $this->validateContinuity($route);
 
             return $route;
@@ -93,7 +97,9 @@ class ConversionRouteService
     {
         $available = $this->availableRulesForStep($step, $date);
         $preferred = $step->preferred_rule_id ? $available->firstWhere('id', $step->preferred_rule_id) : null;
-        if ($preferred) return $preferred;
+        if ($preferred) {
+            return $preferred;
+        }
         $normal = $available->where('campaign_only', false);
 
         return $normal->count() === 1 ? $normal->first() : ($available->count() === 1 ? $available->first() : null);
@@ -101,7 +107,9 @@ class ConversionRouteService
 
     public function canUse(ConversionRouteTemplate $route, ?string $date = null): bool
     {
-        if (! $route->active || ! $route->steps()->exists()) return false;
+        if (! $route->active || ! $route->steps()->exists()) {
+            return false;
+        }
 
         return $route->steps()->with(['ruleGroup', 'preferredRule'])->orderBy('sequence_no')->get()
             ->every(fn ($step) => $this->resolveCurrentRule($step, $date) !== null);
@@ -112,7 +120,9 @@ class ConversionRouteService
         $this->validateContinuity($route);
         try {
             $available = BigDecimal::of($sourceQuantity);
-            if ($available->isLessThanOrEqualTo(0) || $available->getScale() > 4) throw new \InvalidArgumentException;
+            if ($available->isLessThanOrEqualTo(0) || $available->getScale() > 4) {
+                throw new \InvalidArgumentException;
+            }
         } catch (\Throwable) {
             throw ValidationException::withMessages(['quantity' => '数量は0より大きい数値（小数4桁以内）で入力してください。']);
         }
@@ -128,7 +138,9 @@ class ConversionRouteService
                 break;
             }
             $used = $available;
-            if ($rule->maximum_from_quantity !== null && $used->isGreaterThan($rule->maximum_from_quantity)) $used = BigDecimal::of($rule->maximum_from_quantity);
+            if ($rule->maximum_from_quantity !== null && $used->isGreaterThan($rule->maximum_from_quantity)) {
+                $used = BigDecimal::of($rule->maximum_from_quantity);
+            }
             if ($rule->increment_from_quantity !== null) {
                 $increment = BigDecimal::of($rule->increment_from_quantity);
                 $used = $used->dividedBy($increment, 0, RoundingMode::DOWN)->multipliedBy($increment);
@@ -143,8 +155,11 @@ class ConversionRouteService
             $rows[] = ['step' => $step, 'rule' => $rule, 'available' => (string) $available,
                 'used' => (string) $used, 'remaining' => (string) $available->minus($used), 'received' => $received, 'reason' => null];
             $available = BigDecimal::of($received);
-            if ($rule->estimated_days_max === null) $days = null;
-            elseif ($days !== null) $days += (int) $rule->estimated_days_max;
+            if ($rule->estimated_days_max === null) {
+                $days = null;
+            } elseif ($days !== null) {
+                $days += (int) $rule->estimated_days_max;
+            }
         }
 
         return ['rows' => $rows, 'completed' => count($rows) === $steps->count() && $rows !== [] && end($rows)['received'] !== null,

@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\BenefitProgram;
 use App\Models\ConversionRouteTemplate;
-use App\Models\ConversionRuleGroup;
 use App\Models\ConversionRule;
+use App\Models\ConversionRuleGroup;
 use App\Services\ConversionRouteService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,12 +17,18 @@ class ConversionRouteController extends Controller
     public function index(Request $request, ConversionRouteService $service): View
     {
         $status = $request->query('status', 'active');
-        if (! in_array($status, ['active', 'inactive', 'all'], true)) $status = 'active';
+        if (! in_array($status, ['active', 'inactive', 'all'], true)) {
+            $status = 'active';
+        }
         $query = ConversionRouteTemplate::query()->with(['targetProgram', 'steps.ruleGroup.fromProgram', 'steps.ruleGroup.toProgram']);
-        if ($status !== 'all') $query->where('active', $status === 'active');
+        if ($status !== 'all') {
+            $query->where('active', $status === 'active');
+        }
         $routes = $query->orderBy('name')->paginate(20)->withQueryString();
         $usable = [];
-        foreach ($routes as $route) $usable[$route->id] = $service->canUse($route);
+        foreach ($routes as $route) {
+            $usable[$route->id] = $service->canUse($route);
+        }
 
         return view('conversion.routes.index', compact('routes', 'status', 'usable'));
     }

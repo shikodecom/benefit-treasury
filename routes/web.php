@@ -4,13 +4,17 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BenefitAccountController;
 use App\Http\Controllers\BenefitDashboardController;
 use App\Http\Controllers\BenefitLedgerController;
-use App\Http\Controllers\BenefitLotController;
 use App\Http\Controllers\BenefitListingController;
+use App\Http\Controllers\BenefitLotController;
+use App\Http\Controllers\BenefitNotificationController;
 use App\Http\Controllers\BenefitProgramController;
+use App\Http\Controllers\BenefitSearchController;
 use App\Http\Controllers\BenefitTransactionController;
 use App\Http\Controllers\BenefitTransferController;
-use App\Http\Controllers\ConversionRuleController;
 use App\Http\Controllers\ConversionRouteController;
+use App\Http\Controllers\ConversionRuleController;
+use App\Http\Controllers\ConversionTransferDraftController;
+use App\Http\Controllers\ExcelImportController;
 use App\Http\Controllers\HouseholdMemberController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,6 +28,19 @@ Route::middleware('guest')->group(function (): void {
 Route::middleware('auth')->group(function (): void {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/dashboard', [BenefitDashboardController::class, 'index'])->name('dashboard.index');
+    Route::get('/search', [BenefitSearchController::class, 'index'])->name('search.index');
+    Route::get('/notifications', [BenefitNotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/notifications/read-all', [BenefitNotificationController::class, 'readAll'])->name('notifications.read-all');
+    Route::get('/notifications/preferences', [BenefitNotificationController::class, 'preferences'])->name('notifications.preferences');
+    Route::post('/notifications/preferences', [BenefitNotificationController::class, 'updatePreferences'])->name('notifications.preferences.update');
+    Route::post('/notifications/{notification}/open', [BenefitNotificationController::class, 'open'])->name('notifications.open');
+    Route::post('/notifications/{notification}/dismiss', [BenefitNotificationController::class, 'dismiss'])->name('notifications.dismiss');
+    Route::get('/imports/excel', [ExcelImportController::class, 'index'])->name('imports.index');
+    Route::post('/imports/excel', [ExcelImportController::class, 'upload'])->name('imports.upload');
+    Route::get('/imports/excel/{batch}', [ExcelImportController::class, 'show'])->name('imports.show');
+    Route::post('/imports/excel/{batch}/configure', [ExcelImportController::class, 'configure'])->name('imports.configure');
+    Route::post('/imports/excel/{batch}/execute', [ExcelImportController::class, 'execute'])->name('imports.execute');
+    Route::post('/imports/excel/{batch}/records/{record}', [ExcelImportController::class, 'override'])->name('imports.records.override');
     Route::post('/dashboard/lots/{lot}/policy', [BenefitDashboardController::class, 'updatePolicy'])->name('dashboard.lots.policy');
     Route::get('/benefits', [BenefitLedgerController::class, 'index'])->name('ledger.home');
     Route::get('/transactions', [BenefitTransactionController::class, 'index'])->name('ledger.transactions.index');
@@ -82,6 +99,9 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/conversion-routes/create', [ConversionRouteController::class, 'create'])->name('conversion.routes.create');
     Route::post('/conversion-routes', [ConversionRouteController::class, 'store'])->name('conversion.routes.store');
     Route::get('/conversion-routes/{route}', [ConversionRouteController::class, 'show'])->name('conversion.routes.show');
+    Route::get('/conversion-routes/{route}/transfer-draft', [ConversionTransferDraftController::class, 'create'])->name('conversion.routes.draft');
+    Route::post('/conversion-routes/{route}/transfer-draft/preview', [ConversionTransferDraftController::class, 'preview'])->name('conversion.routes.draft.preview');
+    Route::post('/conversion-routes/{route}/transfer-draft', [ConversionTransferDraftController::class, 'store'])->name('conversion.routes.draft.store');
     Route::post('/conversion-routes/{route}/deactivate', [ConversionRouteController::class, 'deactivate'])->name('conversion.routes.deactivate');
     Route::view('/settings/benefits', 'settings.home')->name('settings.home');
 

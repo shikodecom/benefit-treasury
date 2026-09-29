@@ -9,6 +9,7 @@ use App\Models\BenefitTransferGroup;
 use App\Models\BenefitTransferStep;
 use App\Models\ConversionRule;
 use Brick\Math\BigDecimal;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -102,9 +103,13 @@ class BenefitTransferService
                 ->orderByRaw('expires_at IS NULL')->orderBy('expires_at')->orderBy('id')->lockForUpdate()->get();
             $needed = BigDecimal::of($step->source_quantity);
             foreach ($lots as $lot) {
-                if ($needed->isLessThanOrEqualTo(0)) break;
+                if ($needed->isLessThanOrEqualTo(0)) {
+                    break;
+                }
                 $available = BigDecimal::of($this->read->lotAvailableQuantity($lot->id));
-                if ($available->isLessThanOrEqualTo(0)) continue;
+                if ($available->isLessThanOrEqualTo(0)) {
+                    continue;
+                }
                 $take = $available->isLessThan($needed) ? $available : $needed;
                 $this->writeTransaction($step, $source->id, $lot->id, 'transfer_out', (string) $take, $startedAt);
                 $needed = $needed->minus($take);
@@ -121,7 +126,9 @@ class BenefitTransferService
             $step->started_at = $startedAt;
             if (! $step->expected_complete_at && $step->conversion_rule_id) {
                 $days = $step->conversionRule->estimated_days_max;
-                if ($days !== null) $step->expected_complete_at = \Carbon\Carbon::parse($startedAt, 'Asia/Tokyo')->addDays($days)->toDateString();
+                if ($days !== null) {
+                    $step->expected_complete_at = Carbon::parse($startedAt, 'Asia/Tokyo')->addDays($days)->toDateString();
+                }
             }
             $step->status = 'processing';
             $step->save();
@@ -166,10 +173,16 @@ class BenefitTransferService
         DB::transaction(function () use ($step, $memo): void {
             $step = BenefitTransferStep::query()->lockForUpdate()->findOrFail($step->id);
             $this->requireStatus($step, ['processing', 'error']);
-            if (trim($memo) === '') throw ValidationException::withMessages(['memo' => '返還の理由を入力してください。']);
+            if (trim($memo) === '') {
+                throw ValidationException::withMessages(['memo' => '返還の理由を入力してください。']);
+            }
             $outs = $step->transactions()->where('transaction_type', 'transfer_out')->orderBy('account_id')->orderBy('lot_id')->get();
-            if ($outs->isEmpty()) throw ValidationException::withMessages(['step' => '移行元の取引が見つかりません。']);
-            foreach ($outs as $out) $this->transactions->reverse($out, true);
+            if ($outs->isEmpty()) {
+                throw ValidationException::withMessages(['step' => '移行元の取引が見つかりません。']);
+            }
+            foreach ($outs as $out) {
+                $this->transactions->reverse($out, true);
+            }
             $step->status = 'cancelled';
             $step->memo = trim(($step->memo ? $step->memo."\n" : '').$memo);
             $step->save();
@@ -182,7 +195,9 @@ class BenefitTransferService
         DB::transaction(function () use ($step, $memo): void {
             $step = BenefitTransferStep::query()->lockForUpdate()->findOrFail($step->id);
             $this->requireStatus($step, ['processing']);
-            if (trim($memo) === '') throw ValidationException::withMessages(['memo' => 'エラーの理由を入力してください。']);
+            if (trim($memo) === '') {
+                throw ValidationException::withMessages(['memo' => 'エラーの理由を入力してください。']);
+            }
             $step->status = 'error';
             $step->memo = trim(($step->memo ? $step->memo."\n" : '').$memo);
             $step->save();
@@ -196,7 +211,9 @@ class BenefitTransferService
             $step = BenefitTransferStep::query()->lockForUpdate()->findOrFail($step->id);
             $this->requireStatus($step, ['planned', 'processing']);
             $step->expected_complete_at = $date;
-            if ($memo) $step->memo = trim(($step->memo ? $step->memo."\n" : '').$memo);
+            if ($memo) {
+                $step->memo = trim(($step->memo ? $step->memo."\n" : '').$memo);
+            }
             $step->save();
             $this->calculateGroupStatus($step->group);
         });
@@ -212,12 +229,19 @@ class BenefitTransferService
         $group = BenefitTransferGroup::query()->lockForUpdate()->findOrFail($group->id);
         $steps = $group->steps()->orderBy('sequence_no')->get();
         $statuses = $steps->pluck('status')->all();
-        if (in_array('error', $statuses, true)) $status = 'error';
-        elseif (in_array('processing', $statuses, true)) $status = 'processing';
-        elseif ($statuses && count(array_unique($statuses)) === 1 && $statuses[0] === 'completed') $status = 'completed';
-        elseif (in_array('cancelled', $statuses, true) && ! in_array('planned', $statuses, true)) $status = 'cancelled';
-        elseif (in_array('completed', $statuses, true)) $status = 'processing';
-        else $status = 'planned';
+        if (in_array('error', $statuses, true)) {
+            $status = 'error';
+        } elseif (in_array('processing', $statuses, true)) {
+            $status = 'processing';
+        } elseif ($statuses && count(array_unique($statuses)) === 1 && $statuses[0] === 'completed') {
+            $status = 'completed';
+        } elseif (in_array('cancelled', $statuses, true) && ! in_array('planned', $statuses, true)) {
+            $status = 'cancelled';
+        } elseif (in_array('completed', $statuses, true)) {
+            $status = 'processing';
+        } else {
+            $status = 'planned';
+        }
         $group->status = $status;
         $group->started_at = $steps->pluck('started_at')->filter()->sort()->first();
         $group->completed_at = $status === 'completed' ? $steps->pluck('completed_at')->filter()->sort()->last() : null;
@@ -273,7 +297,9 @@ class BenefitTransferService
         try {
             $quantity = BigDecimal::of($value);
             if (($positive ? $quantity->isLessThanOrEqualTo(0) : $quantity->isLessThan(0))
-                || $quantity->getScale() > 4 || $quantity->isGreaterThanOrEqualTo('100000000000000')) throw new \InvalidArgumentException;
+                || $quantity->getScale() > 4 || $quantity->isGreaterThanOrEqualTo('100000000000000')) {
+                throw new \InvalidArgumentException;
+            }
 
             return (string) $quantity->toScale(4);
         } catch (\Throwable) {
@@ -283,6 +309,8 @@ class BenefitTransferService
 
     private function requireStatus(BenefitTransferStep $step, array $allowed): void
     {
-        if (! in_array($step->status, $allowed, true)) throw ValidationException::withMessages(['step' => 'このステップは現在の状態では操作できません。']);
+        if (! in_array($step->status, $allowed, true)) {
+            throw ValidationException::withMessages(['step' => 'このステップは現在の状態では操作できません。']);
+        }
     }
 }

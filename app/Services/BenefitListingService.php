@@ -64,7 +64,9 @@ class BenefitListingService
             if ($items !== null) {
                 $parts = $this->lockAndValidateItems($items, $listing->status === 'listed', $listing->id,
                     $listing->items()->pluck('lot_id')->all());
-                if ($listing->status === 'listed') $this->confirmPublication($parts, $confirmPolicy, $confirmMixedExpiry);
+                if ($listing->status === 'listed') {
+                    $this->confirmPublication($parts, $confirmPolicy, $confirmMixedExpiry);
+                }
                 $listing->items()->delete();
                 foreach ($parts as [$lot, $quantity]) {
                     $item = new BenefitListingItem;
@@ -196,8 +198,12 @@ class BenefitListingService
     public function salesSummary(?string $from = null, ?string $to = null): array
     {
         $query = BenefitListing::query()->where('status', 'sold')->whereNull('sale_reversed_at');
-        if ($from) $query->whereDate('sold_at', '>=', $from);
-        if ($to) $query->whereDate('sold_at', '<=', $to);
+        if ($from) {
+            $query->whereDate('sold_at', '>=', $from);
+        }
+        if ($to) {
+            $query->whereDate('sold_at', '<=', $to);
+        }
 
         return [
             'count' => (clone $query)->count(),
@@ -241,19 +247,27 @@ class BenefitListingService
             $lot = $lots[$id];
             try {
                 $quantity = BigDecimal::of((string) $items[$id]);
-                if ($quantity->isLessThanOrEqualTo(0) || $quantity->getScale() > 4 || $quantity->isGreaterThanOrEqualTo('100000000000000')) throw new \InvalidArgumentException;
+                if ($quantity->isLessThanOrEqualTo(0) || $quantity->getScale() > 4 || $quantity->isGreaterThanOrEqualTo('100000000000000')) {
+                    throw new \InvalidArgumentException;
+                }
             } catch (\Throwable) {
                 throw ValidationException::withMessages(['items' => '数量は0より大きい数値（小数4桁以内）で入力してください。']);
             }
-            if ($lot->cancelled_at !== null) throw ValidationException::withMessages(['items' => '登録取消済みロットは出品できません。']);
-            if ($reserve && $lot->transfer_restriction === 'non_transferable') throw ValidationException::withMessages(['items' => '譲渡・転売不可の特典は出品できません。']);
+            if ($lot->cancelled_at !== null) {
+                throw ValidationException::withMessages(['items' => '登録取消済みロットは出品できません。']);
+            }
+            if ($reserve && $lot->transfer_restriction === 'non_transferable') {
+                throw ValidationException::withMessages(['items' => '譲渡・転売不可の特典は出品できません。']);
+            }
             if ($reserve) {
                 $available = BigDecimal::of($this->read->lotAvailableQuantity($id));
                 if ($currentListingId !== null) {
                     $own = BenefitListingItem::query()->where('listing_id', $currentListingId)->where('lot_id', $id)->value('quantity');
                     $available = $available->plus((string) ($own ?? '0'));
                 }
-                if ($available->isLessThan($quantity)) throw ValidationException::withMessages(['items' => 'ロット #'.$id.' の出品可能数は '.$available.' です。']);
+                if ($available->isLessThan($quantity)) {
+                    throw ValidationException::withMessages(['items' => 'ロット #'.$id.' の出品可能数は '.$available.' です。']);
+                }
             }
             $parts[] = [$lot, (string) $quantity->toScale(4)];
         }
@@ -264,7 +278,9 @@ class BenefitListingService
     private function fill(BenefitListing $listing, array $data): void
     {
         foreach (['marketplace', 'title', 'listing_price_yen', 'listing_url', 'delivery_type', 'memo'] as $field) {
-            if (array_key_exists($field, $data)) $listing->{$field} = $data[$field];
+            if (array_key_exists($field, $data)) {
+                $listing->{$field} = $data[$field];
+            }
         }
     }
 
@@ -284,7 +300,9 @@ class BenefitListingService
 
     private function recordPrice(BenefitListing $listing, ?string $reason = null): void
     {
-        if ($listing->listing_price_yen === null) return;
+        if ($listing->listing_price_yen === null) {
+            return;
+        }
         $history = new BenefitListingPriceHistory;
         $history->listing_id = $listing->id;
         $history->price_yen = $listing->listing_price_yen;
