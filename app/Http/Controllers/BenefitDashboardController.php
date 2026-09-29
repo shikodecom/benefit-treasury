@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Domain\BenefitValues;
+use App\Models\BenefitAccount;
 use App\Models\BenefitLot;
 use App\Models\BenefitTransferStep;
 use App\Models\HouseholdMember;
@@ -11,6 +12,7 @@ use App\Services\BenefitTransferService;
 use Brick\Math\BigDecimal;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -37,6 +39,13 @@ class BenefitDashboardController extends Controller
                 'program' => $items->first()->planningEquivalentProgram,
                 'quantity' => (string) $items->reduce(fn ($sum, $item) => $sum->plus($item->planning_equivalent_quantity), BigDecimal::zero())->toScale(4),
             ]);
+        $accountBalances = DB::table('benefit_transactions')->select('account_id')
+            ->selectRaw("SUM(CASE WHEN direction = 'in' THEN quantity ELSE -quantity END) AS balance")
+            ->groupBy('account_id');
+        $balanceAccounts = BenefitAccount::query()->with('program')
+            ->joinSub($accountBalances, 'balances', 'balances.account_id', '=', 'benefit_accounts.id')
+            ->select('benefit_accounts.*')->selectRaw('balances.balance AS current_balance')
+            ->where('balances.balance', '>', 0)->orderBy('benefit_accounts.id')->get();
 
         return view('dashboard.index', [
             'service' => $service,
@@ -51,6 +60,7 @@ class BenefitDashboardController extends Controller
             'pendingTransfers' => $pendingTransfers,
             'overdueTransfers' => $overdueTransfers,
             'equivalents' => $equivalents,
+            'balanceAccounts' => $balanceAccounts,
         ]);
     }
 

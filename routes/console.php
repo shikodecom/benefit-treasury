@@ -45,4 +45,5 @@ Artisan::command('benefit:notifications', function (): void {
     $this->info("Created {$count} notifications.");
 })->purpose('Generate due benefit and transfer notifications');
 
-Schedule::command('benefit:notifications')->dailyAt('08:00')->timezone('Asia/Tokyo')->withoutOverlapping();
+Schedule::command('benefit:notifications')->dailyAt('08:00')->timezone('Asia/Tokyo')
+    ->withoutOverlapping()->appendOutputTo(storage_path('logs/notifications-scheduler.log'));
