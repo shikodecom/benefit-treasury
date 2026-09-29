@@ -256,6 +256,84 @@ class MvpIntegrationTest extends TestCase
         $this->assertSame(2, DB::table('benefit_transactions')->where('account_id', $account->id)->count());
     }
 
+    public function test_anonymous_workbook_layouts_preview_reconcile_and_dedupe(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $jal = $this->account('JAL');
+        $ana = $this->account('ANA');
+        $familyAna = $this->account('ANA');
+        $fixture = file_get_contents(base_path('tests/Fixtures/anonymous-mileage.xlsx'));
+        $this->post(route('imports.upload'), ['file' => UploadedFile::fake()->createWithContent('miles.xlsx', $fixture)])->assertRedirect();
+        $batch = ImportBatch::query()->firstOrFail();
+        $this->assertSame(7, $batch->records()->where('record_type', 'transaction')->count());
+        $this->assertSame(3, $batch->records()->where('import_status', 'needs_review')->count());
+        $this->post(route('imports.configure', $batch), ['mappings' => [
+            'JAL' => ['action' => 'import', 'account_id' => $jal->id],
+            'ANA' => ['action' => 'import', 'account_id' => $ana->id],
+            'えりANA' => ['action' => 'import', 'account_id' => $familyAna->id],
+        ]])->assertRedirect();
+        $opening = $batch->records()->where('source_sheet', 'JAL')->where('source_row_number', 2)->firstOrFail();
+        $this->assertSame('needs_review', $opening->fresh()->import_status);
+        $this->post(route('imports.records.override', [$batch, $opening]), [
+            'action' => 'import', 'account_id' => $jal->id, 'date_override' => '2026-09-01',
+            'transaction_type' => 'opening_balance',
+        ])->assertRedirect();
+        $this->assertSame(0, $batch->records()->where('warning_code', 'balance_mismatch')->count());
+        $this->post(route('imports.execute', $batch))->assertRedirect();
+        $this->assertSame(7, $batch->records()->where('import_status', 'imported')->count());
+        $this->assertSame('1500.0000', app(BenefitReadService::class)->unallocatedBalance($jal->id));
+        $this->assertSame('2500.0000', app(BenefitReadService::class)->unallocatedBalance($ana->id));
+        $this->assertSame('800.0000', app(BenefitReadService::class)->unallocatedBalance($familyAna->id));
+        $this->post(route('imports.upload'), ['file' => UploadedFile::fake()->createWithContent('renamed.xlsx', $fixture)])->assertRedirect();
+        $this->assertSame(7, ImportBatch::query()->latest('id')->firstOrFail()->records()->where('import_status', 'skipped_duplicate')->count());
+
+        $points = $this->account('架空ポイント');
+        $pointFixture = file_get_contents(base_path('tests/Fixtures/anonymous-points.xlsx'));
+        $this->post(route('imports.upload'), ['file' => UploadedFile::fake()->createWithContent('points.xlsx', $pointFixture)])->assertRedirect();
+        $pointBatch = ImportBatch::query()->latest('id')->firstOrFail();
+        $this->assertSame(3, $pointBatch->records()->where('record_type', 'transaction')->count());
+        $this->assertSame(1, $pointBatch->records()->where('source_sheet', 'プレ商品券')->where('import_status', 'needs_review')->count());
+        $this->assertStringNotContainsString('000-0000-0000', json_encode($pointBatch->records()->pluck('raw_data_json')));
+        $this->post(route('imports.configure', $pointBatch), ['mappings' => [
+            'ポイント積立' => ['action' => 'import', 'account_id' => $points->id, 'confirm_native' => '1'],
+            'ポイント利用' => ['action' => 'import', 'account_id' => $points->id, 'confirm_native' => '1'],
+        ]])->assertRedirect();
+        $use = $pointBatch->records()->where('source_sheet', 'ポイント利用')->firstOrFail();
+        $this->assertSame('use', $use->fresh()->normalized_data_json['type']);
+        $this->post(route('imports.execute', $pointBatch))->assertRedirect();
+        $this->assertSame('110.0000', app(BenefitReadService::class)->unallocatedBalance($points->id));
+    }
+
+    public function test_excel_external_link_and_expanded_size_bomb_are_rejected(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $source = base_path('tests/Fixtures/anonymous-mileage.xlsx');
+        foreach (['external', 'bomb'] as $kind) {
+            $path = tempnam(sys_get_temp_dir(), 'unsafe-xlsx');
+            copy($source, $path);
+            $zip = new ZipArchive;
+            $zip->open($path);
+            if ($kind === 'external') {
+                $zip->addFromString('xl/externalLinks/externalLink1.xml', '<externalLink/>');
+            } else {
+                $large = tempnam(sys_get_temp_dir(), 'xlsx-bomb');
+                $handle = fopen($large, 'wb');
+                ftruncate($handle, 81 * 1024 * 1024);
+                fclose($handle);
+                $zip->addFile($large, 'xl/worksheets/oversized.xml');
+            }
+            $zip->close();
+            if (isset($large)) {
+                unlink($large);
+                unset($large);
+            }
+            $this->post(route('imports.upload'), ['file' => UploadedFile::fake()->createWithContent($kind.'.xlsx', file_get_contents($path))])
+                ->assertSessionHasErrors('file');
+            unlink($path);
+        }
+        $this->assertSame(0, ImportBatch::query()->count());
+    }
+
     public function test_excel_identical_legitimate_rows_keep_distinct_occurrence_fingerprints(): void
     {
         $this->actingAs(User::factory()->create());

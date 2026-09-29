@@ -143,7 +143,7 @@ class ExcelImportService
                 continue;
             }
             try {
-                $normalized = $this->normalizeTransaction($record->raw_data_json ?? [], $account?->id);
+                $normalized = $this->normalizeTransaction($this->transactionRaw($record), $account?->id);
                 if ($plan) {
                     $normalized['account_plan'] = $plan;
                 }
@@ -184,7 +184,7 @@ class ExcelImportService
             throw ValidationException::withMessages(['account_id' => '有効な口座を選択してください。']);
         }
         try {
-            $raw = $record->raw_data_json ?? [];
+            $raw = $this->transactionRaw($record);
             if (! empty($data['date_override'])) {
                 $raw['date'] = $data['date_override'];
             }
@@ -317,6 +317,17 @@ class ExcelImportService
         return ['account_id' => $accountId, 'date' => $date, 'description' => mb_substr($description, 0, 255),
             'quantity' => (string) BigDecimal::of($amount)->abs()->toScale(4), 'direction' => $direction,
             'type' => $type, 'balance' => $this->decimal($raw['balance'] ?? '')];
+    }
+
+    private function transactionRaw(ImportRecord $record): array
+    {
+        $raw = $record->raw_data_json ?? [];
+        if ($record->source_sheet === 'ポイント利用' && isset($raw['quantity'])
+            && ! str_starts_with(trim($raw['quantity']), '-')) {
+            $raw['quantity'] = '-'.$raw['quantity'];
+        }
+
+        return $raw;
     }
 
     private function plannedAccount(array $plan): BenefitAccount

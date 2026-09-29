@@ -95,7 +95,7 @@ class SafeXlsxReader
             $this->invalid();
         }
         $xml = simplexml_load_string($content, 'SimpleXMLElement', LIBXML_NONET | LIBXML_NOCDATA);
-        if (! $xml) {
+        if ($xml === false) {
             $this->invalid();
         }
 
