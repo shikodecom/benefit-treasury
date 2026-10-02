@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 class ExcelImportService
 {
-    public const VERSION = '2026.09.1';
+    public const VERSION = '2026.10.1';
 
     private const COLUMNS = [
         'date' => ['日付', '年月日', '取引日', '獲得日', '利用日', 'date', 'transaction date'],
@@ -84,12 +84,6 @@ class ExcelImportService
                     $base = hash('sha256', json_encode([$sheet, $type, $raw], JSON_UNESCAPED_UNICODE));
                     $occurrences[$base] = ($occurrences[$base] ?? 0) + 1;
                     $fingerprint = hash('sha256', $base.':'.$occurrences[$base]);
-                    $existing = DB::table('imported_fingerprints')->where('row_fingerprint', $fingerprint)->exists();
-                    if ($existing) {
-                        $this->record($batch, $sheet, $number, 'skipped_duplicate', 'duplicate', $raw, $fingerprint, null, $type);
-
-                        continue;
-                    }
                     $this->record($batch, $sheet, $number, 'pending', null, $raw, $fingerprint, null, $type);
                 }
             }
@@ -105,117 +99,135 @@ class ExcelImportService
     public function configure(ImportBatch $batch, array $mappings): void
     {
         abort_unless($batch->status === 'preview' || $batch->status === 'completed_with_errors', 409);
-        foreach ($batch->records()->whereIn('import_status', ['pending', 'needs_review', 'error', 'ready', 'warning'])->cursor() as $record) {
-            $mapping = $mappings[$record->source_sheet] ?? [];
-            if (($mapping['action'] ?? '') === 'skip') {
-                $record->import_status = 'skipped_out_of_scope';
-                $record->save();
-
-                continue;
-            }
-            if ($record->record_type !== 'transaction') {
-                continue;
-            }
-            $account = empty($mapping['create_account']) ? BenefitAccount::query()->with('program')->find($mapping['account_id'] ?? 0) : null;
-            $plan = null;
-            if (! empty($mapping['create_account'])) {
-                $program = BenefitProgram::query()->where('active', true)->find($mapping['new_program_id'] ?? 0);
-                $member = empty($mapping['new_member_id']) ? null : HouseholdMember::query()->where('active', true)->find($mapping['new_member_id']);
-                if ($program && (empty($mapping['new_member_id']) || $member)) {
-                    $plan = ['program_id' => $program->id, 'member_id' => $member?->id,
-                        'label' => trim((string) ($mapping['new_label'] ?? ''))];
+        foreach ($batch->records()->whereIn('import_status', ['pending', 'needs_review', 'error', 'ready', 'warning', 'skipped_duplicate', 'skipped_out_of_scope'])->cursor() as $record) {
+            DB::transaction(function () use ($record, $mappings): void {
+                $record = ImportRecord::query()->lockForUpdate()->findOrFail($record->id);
+                if ($record->import_status === 'imported') {
+                    return;
                 }
-            }
-            if (($account && (! $account->active || ! $account->program->active)) || (! $account && ! $plan)) {
-                $record->import_status = 'needs_review';
-                $record->warning_code = 'account_unresolved';
-                $record->save();
+                $mapping = $mappings[$record->source_sheet] ?? [];
+                if (($mapping['action'] ?? '') === 'skip') {
+                    $record->import_status = 'skipped_out_of_scope';
+                    $record->save();
 
-                continue;
-            }
-            $programId = $account?->program_id ?? $plan['program_id'];
-            if (filled($record->raw_data_json['program'] ?? null)
-                && $this->programs->resolve($record->raw_data_json['program'], $record->source_sheet) !== $programId) {
-                $record->import_status = 'needs_review';
-                $record->warning_code = 'program_unresolved';
-                $record->save();
-
-                continue;
-            }
-            try {
-                $normalized = $this->normalizeTransaction($this->transactionRaw($record), $account?->id);
-                if ($plan) {
-                    $normalized['account_plan'] = $plan;
+                    return;
                 }
-                $record->normalized_data_json = $normalized;
-                $pointSheet = in_array($record->source_sheet, ['ポイント積立', 'ポイント利用'], true);
-                $record->import_status = $pointSheet && empty($mapping['confirm_native']) ? 'needs_review' : 'ready';
-                $record->warning_code = $pointSheet && empty($mapping['confirm_native']) ? 'native_quantity_unconfirmed' : null;
-                $record->error_message = null;
-            } catch (\Throwable) {
-                $record->import_status = 'needs_review';
-                $record->warning_code = 'ambiguous_row';
-                $record->normalized_data_json = null;
-            }
-            $record->save();
+                if ($record->record_type !== 'transaction') {
+                    return;
+                }
+                $account = empty($mapping['create_account']) ? BenefitAccount::query()->with('program')->find($mapping['account_id'] ?? 0) : null;
+                $plan = null;
+                if (! empty($mapping['create_account'])) {
+                    $program = BenefitProgram::query()->where('active', true)->find($mapping['new_program_id'] ?? 0);
+                    $member = empty($mapping['new_member_id']) ? null : HouseholdMember::query()->where('active', true)->find($mapping['new_member_id']);
+                    if ($program && (empty($mapping['new_member_id']) || $member)) {
+                        $plan = ['program_id' => $program->id, 'member_id' => $member?->id,
+                            'label' => trim((string) ($mapping['new_label'] ?? ''))];
+                    }
+                }
+                if (($account && (! $account->active || ! $account->program->active)) || (! $account && ! $plan)) {
+                    $record->import_status = 'needs_review';
+                    $record->warning_code = 'account_unresolved';
+                    $record->normalized_data_json = null;
+                    $record->save();
+
+                    return;
+                }
+                $programId = $account?->program_id ?? $plan['program_id'];
+                if (filled($record->raw_data_json['program'] ?? null)
+                    && $this->programs->resolve($record->raw_data_json['program'], $record->source_sheet) !== $programId) {
+                    $record->import_status = 'needs_review';
+                    $record->warning_code = 'program_unresolved';
+                    $record->normalized_data_json = null;
+                    $record->save();
+
+                    return;
+                }
+                $mappedAccount = $account ?? $this->existingPlannedAccount($plan);
+                if ($mappedAccount && $this->markDuplicate($record, $mappedAccount->id)) {
+                    return;
+                }
+                try {
+                    $normalized = $this->normalizeTransaction($this->transactionRaw($record), $account?->id);
+                    if ($plan) {
+                        $normalized['account_plan'] = $plan;
+                    }
+                    $record->normalized_data_json = $normalized;
+                    $pointSheet = in_array($record->source_sheet, ['ポイント積立', 'ポイント利用'], true);
+                    $record->import_status = $pointSheet && empty($mapping['confirm_native']) ? 'needs_review' : 'ready';
+                    $record->warning_code = $pointSheet && empty($mapping['confirm_native']) ? 'native_quantity_unconfirmed' : null;
+                    $record->error_message = null;
+                } catch (\Throwable) {
+                    $record->import_status = 'needs_review';
+                    $record->warning_code = 'ambiguous_row';
+                    $record->normalized_data_json = null;
+                }
+                $record->save();
+            });
         }
         $this->verify($batch);
+        $this->updateCounts($batch);
     }
 
     public function overrideRecord(ImportRecord $record, array $data): void
     {
-        if (! in_array($record->batch->status, ['preview', 'completed_with_errors'], true)) {
-            abort(409);
-        }
-        if (in_array($record->import_status, ['imported', 'skipped_duplicate'], true)) {
-            abort(409);
-        }
-        if ($data['action'] === 'skip') {
-            $record->import_status = 'skipped_out_of_scope';
-            $record->save();
+        DB::transaction(function () use ($record, $data): void {
+            $record = ImportRecord::query()->lockForUpdate()->findOrFail($record->id);
+            if (! in_array($record->batch->status, ['preview', 'completed_with_errors'], true)) {
+                abort(409);
+            }
+            if ($record->import_status === 'imported') {
+                abort(409);
+            }
+            if ($data['action'] === 'skip') {
+                $record->import_status = 'skipped_out_of_scope';
+                $record->save();
 
-            return;
-        }
-        if ($record->record_type !== 'transaction') {
-            abort(409);
-        }
-        $account = BenefitAccount::query()->with('program')->findOrFail($data['account_id']);
-        if (! $account->active || ! $account->program->active) {
-            throw ValidationException::withMessages(['account_id' => '有効な口座を選択してください。']);
-        }
-        try {
-            $raw = $this->transactionRaw($record);
-            if (! empty($data['date_override'])) {
-                $raw['date'] = $data['date_override'];
+                return;
             }
-            if (isset($data['quantity_override']) && $data['quantity_override'] !== '') {
-                $raw['quantity'] = (string) $data['quantity_override'];
-                unset($raw['in'], $raw['out']);
+            if ($record->record_type !== 'transaction') {
+                abort(409);
             }
-            $normalized = $this->normalizeTransaction($raw, $account->id);
-            if (! empty($data['date_override'])) {
-                $normalized['date_override'] = $data['date_override'];
+            $account = BenefitAccount::query()->with('program')->findOrFail($data['account_id']);
+            if (! $account->active || ! $account->program->active) {
+                throw ValidationException::withMessages(['account_id' => '有効な口座を選択してください。']);
             }
-            if (isset($data['quantity_override']) && $data['quantity_override'] !== '') {
-                $normalized['quantity_override'] = (string) $data['quantity_override'];
+            try {
+                $raw = $this->transactionRaw($record);
+                if (! empty($data['date_override'])) {
+                    $raw['date'] = $data['date_override'];
+                }
+                if (isset($data['quantity_override']) && $data['quantity_override'] !== '') {
+                    $raw['quantity'] = (string) $data['quantity_override'];
+                    unset($raw['in'], $raw['out']);
+                }
+                $normalized = $this->normalizeTransaction($raw, $account->id);
+                if (! empty($data['date_override'])) {
+                    $normalized['date_override'] = $data['date_override'];
+                }
+                if (isset($data['quantity_override']) && $data['quantity_override'] !== '') {
+                    $normalized['quantity_override'] = (string) $data['quantity_override'];
+                }
+            } catch (\Throwable) {
+                throw ValidationException::withMessages(['record' => '日付または数量を読み取れない行です。元ファイルを確認してください。']);
             }
-        } catch (\Throwable) {
-            throw ValidationException::withMessages(['record' => '日付または数量を読み取れない行です。元ファイルを確認してください。']);
-        }
-        if (! empty($data['transaction_type'])) {
-            $type = $data['transaction_type'];
-            $direction = in_array($type, ['opening_balance', 'earn'], true) ? 'in' : 'out';
-            if ($direction !== $normalized['direction']) {
-                throw ValidationException::withMessages(['transaction_type' => '元データの増減方向と一致しません。']);
+            if (! empty($data['transaction_type'])) {
+                $type = $data['transaction_type'];
+                $direction = in_array($type, ['opening_balance', 'earn'], true) ? 'in' : 'out';
+                if ($direction !== $normalized['direction']) {
+                    throw ValidationException::withMessages(['transaction_type' => '元データの増減方向と一致しません。']);
+                }
+                $normalized['type'] = $type;
             }
-            $normalized['type'] = $type;
-        }
-        $record->normalized_data_json = $normalized;
-        $record->import_status = 'ready';
-        $record->warning_code = null;
-        $record->error_message = null;
-        $record->save();
+            $record->normalized_data_json = $normalized;
+            $record->import_status = 'ready';
+            $record->warning_code = null;
+            $record->error_message = null;
+            $record->save();
+            $this->markDuplicate($record, $account->id);
+        });
         $this->verify($record->batch);
+        $this->updateCounts($record->batch);
     }
 
     public function execute(ImportBatch $batch, bool $confirmMismatch = false): void
@@ -230,20 +242,25 @@ class ExcelImportService
         foreach ($batch->records()->whereIn('import_status', ['ready', 'warning'])->orderBy('id')->cursor() as $record) {
             try {
                 DB::transaction(function () use ($record): void {
+                    $record = ImportRecord::query()->lockForUpdate()->findOrFail($record->id);
+                    if (! in_array($record->import_status, ['ready', 'warning'], true)) {
+                        return;
+                    }
+                    $data = $record->normalized_data_json;
+                    $account = $data['account_id'] ? BenefitAccount::query()->lockForUpdate()->findOrFail($data['account_id']) : $this->plannedAccount($data['account_plan']);
+                    if (! $data['account_id']) {
+                        $data['account_id'] = $account->id;
+                        $record->normalized_data_json = $data;
+                    }
                     if (DB::table('imported_fingerprints')->insertOrIgnore([
-                        'row_fingerprint' => $record->row_fingerprint, 'import_record_id' => $record->id, 'created_at' => now(),
+                        'row_fingerprint' => ImportFingerprint::forAccount($record->row_fingerprint, $account->id),
+                        'import_record_id' => $record->id, 'created_at' => now(),
                     ]) === 0) {
                         $record->import_status = 'skipped_duplicate';
                         $record->warning_code = 'duplicate';
                         $record->save();
 
                         return;
-                    }
-                    $data = $record->normalized_data_json;
-                    $account = $data['account_id'] ? BenefitAccount::query()->findOrFail($data['account_id']) : $this->plannedAccount($data['account_plan']);
-                    if (! $data['account_id']) {
-                        $data['account_id'] = $account->id;
-                        $record->normalized_data_json = $data;
                     }
                     $transaction = $this->transactions->record($account, $data['type'], $data['quantity'], $data['date'], $data['description']);
                     $transaction->source_type = 'excel_import';
@@ -261,10 +278,7 @@ class ExcelImportService
                 $record->save();
             }
         }
-        $batch->imported_rows = $batch->records()->where('import_status', 'imported')->count();
-        $batch->error_rows = $batch->records()->where('import_status', 'error')->count();
-        $batch->warning_rows = $batch->records()->whereIn('import_status', ['needs_review', 'warning'])->count();
-        $batch->skipped_rows = $batch->records()->whereIn('import_status', ['skipped_out_of_scope', 'skipped_duplicate'])->count();
+        $this->updateCounts($batch);
         $batch->status = $batch->error_rows || $batch->warning_rows ? 'completed_with_errors' : 'completed';
         $batch->completed_at = now();
         $batch->save();
@@ -273,27 +287,43 @@ class ExcelImportService
     public function verify(ImportBatch $batch): void
     {
         $balances = [];
-        foreach ($batch->records()->whereIn('import_status', ['ready', 'warning', 'imported'])->orderBy('source_sheet')->orderBy('source_row_number')->cursor() as $record) {
-            $data = $record->normalized_data_json;
-            if (! $data) {
-                continue;
-            }
-            $key = $record->source_sheet.':'.(isset($data['account_plan']) ? json_encode($data['account_plan']) : $data['account_id']);
-            $balances[$key] ??= BigDecimal::zero();
-            $change = BigDecimal::of($data['quantity']);
-            $balances[$key] = $data['direction'] === 'in' ? $balances[$key]->plus($change) : $balances[$key]->minus($change);
-            if ($record->import_status === 'imported') {
-                continue;
-            }
-            if ($data['balance'] !== null && ! $balances[$key]->isEqualTo($data['balance'])) {
-                $record->warning_code = 'balance_mismatch';
-                $record->import_status = 'warning';
-            } else {
-                $record->warning_code = null;
-                $record->import_status = 'ready';
-            }
-            $record->save();
+        foreach ($batch->records()->whereIn('import_status', ['ready', 'warning', 'imported', 'skipped_duplicate'])->orderBy('source_sheet')->orderBy('source_row_number')->cursor() as $record) {
+            DB::transaction(function () use ($record, &$balances): void {
+                $record = ImportRecord::query()->lockForUpdate()->findOrFail($record->id);
+                if (! in_array($record->import_status, ['ready', 'warning', 'imported', 'skipped_duplicate'], true)) {
+                    return;
+                }
+                $data = $record->normalized_data_json;
+                if (! $data) {
+                    return;
+                }
+                $accountId = $data['account_id'] ?? (isset($data['account_plan']) ? $this->existingPlannedAccount($data['account_plan'])?->id : null);
+                $key = $record->source_sheet.':'.($accountId ?? json_encode($data['account_plan']));
+                $balances[$key] ??= BigDecimal::zero();
+                $change = BigDecimal::of($data['quantity']);
+                $balances[$key] = $data['direction'] === 'in' ? $balances[$key]->plus($change) : $balances[$key]->minus($change);
+                if (in_array($record->import_status, ['imported', 'skipped_duplicate'], true)) {
+                    return;
+                }
+                if ($data['balance'] !== null && ! $balances[$key]->isEqualTo($data['balance'])) {
+                    $record->warning_code = 'balance_mismatch';
+                    $record->import_status = 'warning';
+                } else {
+                    $record->warning_code = null;
+                    $record->import_status = 'ready';
+                }
+                $record->save();
+            });
         }
+    }
+
+    private function updateCounts(ImportBatch $batch): void
+    {
+        $batch->imported_rows = $batch->records()->where('import_status', 'imported')->count();
+        $batch->error_rows = $batch->records()->where('import_status', 'error')->count();
+        $batch->warning_rows = $batch->records()->whereIn('import_status', ['needs_review', 'warning'])->count();
+        $batch->skipped_rows = $batch->records()->whereIn('import_status', ['skipped_out_of_scope', 'skipped_duplicate'])->count();
+        $batch->save();
     }
 
     private function normalizeTransaction(array $raw, ?int $accountId): array
@@ -333,9 +363,7 @@ class ExcelImportService
     private function plannedAccount(array $plan): BenefitAccount
     {
         BenefitProgram::query()->lockForUpdate()->where('active', true)->findOrFail($plan['program_id']);
-        $query = BenefitAccount::query()->where('program_id', $plan['program_id'])
-            ->where('household_member_id', $plan['member_id'])->where('account_label', $plan['label'] ?: null);
-        $account = $query->first();
+        $account = $this->existingPlannedAccount($plan);
         if ($account) {
             if (! $account->active) {
                 throw ValidationException::withMessages(['account' => '同名の無効な口座があります。口座設定を確認してください。']);
@@ -351,6 +379,33 @@ class ExcelImportService
         $account->save();
 
         return $account;
+    }
+
+    private function existingPlannedAccount(array $plan): ?BenefitAccount
+    {
+        return BenefitAccount::query()->where('program_id', $plan['program_id'])
+            ->where('household_member_id', $plan['member_id'])->where('account_label', $plan['label'] ?: null)->first();
+    }
+
+    private function markDuplicate(ImportRecord $record, int $accountId): bool
+    {
+        $importedId = DB::table('imported_fingerprints')
+            ->where('row_fingerprint', ImportFingerprint::forAccount($record->row_fingerprint, $accountId))
+            ->value('import_record_id');
+        if ($importedId === null) {
+            return false;
+        }
+        // Include already imported rows in workbook reconciliation without applying them again.
+        $normalized = ImportRecord::query()->findOrFail($importedId)->normalized_data_json;
+        $normalized['account_id'] = $accountId;
+        unset($normalized['account_plan']);
+        $record->normalized_data_json = $normalized;
+        $record->import_status = 'skipped_duplicate';
+        $record->warning_code = 'duplicate';
+        $record->error_message = null;
+        $record->save();
+
+        return true;
     }
 
     private function headers(array $rows): array

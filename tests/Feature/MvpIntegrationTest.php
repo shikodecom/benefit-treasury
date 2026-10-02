@@ -6,6 +6,7 @@ use App\Models\BenefitAccount;
 use App\Models\BenefitProgram;
 use App\Models\BenefitProgramAlias;
 use App\Models\BenefitTransferGroup;
+use App\Models\HouseholdMember;
 use App\Models\ImportBatch;
 use App\Models\ImportRecord;
 use App\Models\Notification;
@@ -19,6 +20,7 @@ use App\Services\BenefitTransferService;
 use App\Services\ConversionRouteService;
 use App\Services\ConversionRuleService;
 use App\Services\ConversionTransferDraftService;
+use App\Services\Imports\ImportFingerprint;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -91,6 +93,9 @@ class MvpIntegrationTest extends TestCase
         $this->assertEquals(1235, (float) app(BenefitReadService::class)->accountBalance($account->id));
         $this->post(route('imports.upload'), ['file' => $this->xlsx('renamed.xlsx')])->assertRedirect();
         $this->assertSame(4, ImportRecord::query()->count());
+        $reimport = ImportBatch::query()->latest('id')->firstOrFail();
+        $this->assertSame(2, $reimport->records()->where('import_status', 'pending')->count());
+        $this->post(route('imports.configure', $reimport), ['mappings' => ['ANA' => ['action' => 'import', 'account_id' => $account->id]]])->assertRedirect();
         $this->assertSame(2, ImportRecord::query()->where('import_status', 'skipped_duplicate')->count());
         $this->assertSame(2, DB::table('benefit_transactions')->count());
     }
@@ -285,7 +290,13 @@ class MvpIntegrationTest extends TestCase
         $this->assertSame('2500.0000', app(BenefitReadService::class)->unallocatedBalance($ana->id));
         $this->assertSame('800.0000', app(BenefitReadService::class)->unallocatedBalance($familyAna->id));
         $this->post(route('imports.upload'), ['file' => UploadedFile::fake()->createWithContent('renamed.xlsx', $fixture)])->assertRedirect();
-        $this->assertSame(7, ImportBatch::query()->latest('id')->firstOrFail()->records()->where('import_status', 'skipped_duplicate')->count());
+        $reimport = ImportBatch::query()->latest('id')->firstOrFail();
+        $this->post(route('imports.configure', $reimport), ['mappings' => [
+            'JAL' => ['action' => 'import', 'account_id' => $jal->id],
+            'ANA' => ['action' => 'import', 'account_id' => $ana->id],
+            'えりANA' => ['action' => 'import', 'account_id' => $familyAna->id],
+        ]])->assertRedirect();
+        $this->assertSame(7, $reimport->records()->where('import_status', 'skipped_duplicate')->count());
 
         $points = $this->account('架空ポイント');
         $pointFixture = file_get_contents(base_path('tests/Fixtures/anonymous-points.xlsx'));
@@ -348,6 +359,8 @@ class MvpIntegrationTest extends TestCase
         $this->post(route('imports.execute', $batch))->assertRedirect();
         $this->assertSame(3, DB::table('benefit_transactions')->count());
         $this->post(route('imports.upload'), ['file' => $this->xlsx('renamed.xlsx', 'ANA', '利用', false, true)])->assertRedirect();
+        $reimport = ImportBatch::query()->latest('id')->firstOrFail();
+        $this->post(route('imports.configure', $reimport), ['mappings' => ['ANA' => ['action' => 'import', 'account_id' => $account->id]]])->assertRedirect();
         $this->assertSame(3, ImportRecord::query()->where('import_status', 'skipped_duplicate')->count());
     }
 
@@ -531,6 +544,190 @@ class MvpIntegrationTest extends TestCase
         $this->assertSame(2000, DB::table('benefit_transactions')->count());
     }
 
+    public function test_excel_identical_history_is_scoped_to_the_selected_member_account(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $first = $this->account('ANA');
+        $member = new HouseholdMember;
+        $member->display_name = '合成家族';
+        $member->save();
+        $second = new BenefitAccount;
+        $second->program_id = $first->program_id;
+        $second->household_member_id = $member->id;
+        $second->active = true;
+        $second->save();
+        foreach ([$first, $second] as $account) {
+            $batch = $this->configuredWorkbook($account);
+            $this->assertSame(2, $batch->records()->where('import_status', 'ready')->count());
+            $this->post(route('imports.execute', $batch))->assertRedirect()->assertSessionHasNoErrors();
+            $this->assertSame('1235.0000', app(BenefitReadService::class)->accountBalance($account->id));
+        }
+        foreach ([$first, $second] as $account) {
+            $batch = $this->configuredWorkbook($account, $this->xlsx('renamed.xlsx'));
+            $this->assertSame(2, $batch->records()->where('import_status', 'skipped_duplicate')->count());
+            $this->assertSame(2, $batch->fresh()->skipped_rows);
+            $this->post(route('imports.execute', $batch))->assertRedirect()->assertSessionHasNoErrors();
+        }
+        $this->assertSame(4, DB::table('benefit_transactions')->count());
+        $this->assertSame(4, DB::table('imported_fingerprints')->count());
+    }
+
+    public function test_excel_duplicate_preview_can_be_remapped_by_sheet_or_row_before_commit(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $first = $this->account('ANA');
+        $second = new BenefitAccount;
+        $second->program_id = $first->program_id;
+        $second->account_label = '別口座';
+        $second->active = true;
+        $second->save();
+        $original = $this->configuredWorkbook($first);
+        $this->post(route('imports.execute', $original))->assertRedirect();
+        $batch = $this->configuredWorkbook($first);
+        $this->assertSame(2, $batch->records()->where('import_status', 'skipped_duplicate')->count());
+        $this->get(route('imports.show', $batch))->assertOk()
+            ->assertSee(route('imports.records.override', [$batch, $batch->records()->firstOrFail()]), false);
+        $this->post(route('imports.configure', $batch), ['mappings' => ['ANA' => [
+            'action' => 'import', 'account_id' => $second->id,
+        ]]])->assertRedirect();
+        $this->assertSame(2, $batch->records()->where('import_status', 'ready')->count());
+        $this->post(route('imports.configure', $batch), ['mappings' => ['ANA' => [
+            'action' => 'import', 'account_id' => $first->id,
+        ]]])->assertRedirect();
+        foreach ($batch->records()->get() as $record) {
+            $this->post(route('imports.records.override', [$batch, $record]), [
+                'action' => 'import', 'account_id' => $second->id,
+            ])->assertRedirect()->assertSessionHasNoErrors();
+        }
+        $this->post(route('imports.execute', $batch))->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertSame('1235.0000', app(BenefitReadService::class)->accountBalance($second->id));
+        $this->assertSame('1235.0000', app(BenefitReadService::class)->accountBalance($first->id));
+        $this->post(route('imports.execute', $batch))->assertStatus(409);
+        $this->assertSame(4, DB::table('benefit_transactions')->count());
+    }
+
+    public function test_excel_planned_account_resolves_to_the_same_identity_on_reimport(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $first = $this->account('ANA');
+        $original = $this->configuredWorkbook($first);
+        $this->post(route('imports.execute', $original))->assertRedirect();
+        $mapping = ['mappings' => ['ANA' => ['action' => 'import', 'create_account' => '1',
+            'new_program_id' => $first->program_id, 'new_label' => '新規口座']]];
+        $this->post(route('imports.upload'), ['file' => $this->xlsx()])->assertRedirect();
+        $batch = ImportBatch::query()->latest('id')->firstOrFail();
+        $this->post(route('imports.configure', $batch), $mapping)->assertRedirect();
+        $this->assertSame(1, BenefitAccount::query()->count());
+        $this->post(route('imports.execute', $batch))->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertSame(2, BenefitAccount::query()->count());
+        $created = BenefitAccount::query()->where('account_label', '新規口座')->firstOrFail();
+        $this->assertSame('1235.0000', app(BenefitReadService::class)->accountBalance($created->id));
+        $this->post(route('imports.upload'), ['file' => $this->xlsx('renamed.xlsx')])->assertRedirect();
+        $retry = ImportBatch::query()->latest('id')->firstOrFail();
+        $this->post(route('imports.configure', $retry), $mapping)->assertRedirect();
+        $this->assertSame(2, $retry->records()->where('import_status', 'skipped_duplicate')->count());
+        $this->post(route('imports.execute', $retry))->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertSame(2, BenefitAccount::query()->count());
+        $this->assertSame(4, DB::table('benefit_transactions')->count());
+    }
+
+    public function test_excel_reconciliation_includes_duplicate_rows_when_new_history_is_appended(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $account = $this->account('ANA');
+        $original = $this->configuredWorkbook($account);
+        $this->post(route('imports.execute', $original))->assertRedirect();
+        $batch = $this->configuredWorkbook($account, $this->xlsx(additionalEarn: true));
+        $this->assertSame(2, $batch->records()->where('import_status', 'skipped_duplicate')->count());
+        $this->assertSame(1, $batch->records()->where('import_status', 'ready')->count());
+        $this->assertSame(0, $batch->records()->where('warning_code', 'balance_mismatch')->count());
+        $this->post(route('imports.execute', $batch))->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertSame('1335.0000', app(BenefitReadService::class)->accountBalance($account->id));
+        $this->assertSame(3, DB::table('benefit_transactions')->count());
+    }
+
+    public function test_excel_legacy_keys_migrate_using_the_committed_account_and_keep_reimports_safe(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $account = $this->account('ANA');
+        $batch = $this->configuredWorkbook($account);
+        $this->post(route('imports.execute', $batch))->assertRedirect();
+        $migration = require database_path('migrations/2026_10_02_000001_scope_imported_fingerprints_to_accounts.php');
+        $migration->down();
+        foreach ($batch->records()->get() as $record) {
+            $data = $record->normalized_data_json;
+            $data['account_id'] = 999999;
+            $record->normalized_data_json = $data;
+            $record->save();
+            $this->assertDatabaseHas('imported_fingerprints', ['row_fingerprint' => $record->row_fingerprint]);
+        }
+        $migration->up();
+        foreach ($batch->records()->get() as $record) {
+            $this->assertDatabaseHas('imported_fingerprints', [
+                'row_fingerprint' => ImportFingerprint::forAccount($record->row_fingerprint, $account->id),
+            ]);
+        }
+        $migration->up();
+        $reimport = $this->configuredWorkbook($account);
+        $this->assertSame(2, $reimport->records()->where('import_status', 'skipped_duplicate')->count());
+        $this->post(route('imports.execute', $reimport))->assertRedirect();
+        $this->assertSame(2, DB::table('benefit_transactions')->count());
+        $migration->down();
+        $migration->up();
+        $this->assertSame(2, DB::table('imported_fingerprints')->count());
+    }
+
+    public function test_excel_key_migration_rejects_unresolved_history_without_partial_changes(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $account = $this->account('ANA');
+        $batch = $this->configuredWorkbook($account);
+        $this->post(route('imports.execute', $batch))->assertRedirect();
+        $migration = require database_path('migrations/2026_10_02_000001_scope_imported_fingerprints_to_accounts.php');
+        $migration->down();
+        $orphan = $this->configuredWorkbook($account)->records()->firstOrFail();
+        DB::table('imported_fingerprints')->insert([
+            'row_fingerprint' => 'unresolved-source', 'import_record_id' => $orphan->id, 'created_at' => now(),
+        ]);
+        $before = DB::table('imported_fingerprints')->orderBy('import_record_id')->pluck('row_fingerprint')->all();
+        try {
+            $migration->up();
+            $this->fail('Unresolved committed history must stop the migration');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('Cannot resolve', $exception->getMessage());
+        }
+        $this->assertSame($before, DB::table('imported_fingerprints')->orderBy('import_record_id')->pluck('row_fingerprint')->all());
+    }
+
+    public function test_excel_key_rollback_refuses_to_discard_cross_account_history(): void
+    {
+        $this->actingAs(User::factory()->create());
+        foreach ([$this->account('ANA'), $this->account('ANA')] as $account) {
+            $batch = $this->configuredWorkbook($account);
+            $this->post(route('imports.execute', $batch))->assertRedirect();
+        }
+        $before = DB::table('imported_fingerprints')->orderBy('import_record_id')->pluck('row_fingerprint')->all();
+        $migration = require database_path('migrations/2026_10_02_000001_scope_imported_fingerprints_to_accounts.php');
+        try {
+            $migration->down();
+            $this->fail('Rollback cannot collapse two account identities');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('Rollback would lose', $exception->getMessage());
+        }
+        $this->assertSame($before, DB::table('imported_fingerprints')->orderBy('import_record_id')->pluck('row_fingerprint')->all());
+    }
+
+    private function configuredWorkbook(BenefitAccount $account, ?UploadedFile $file = null): ImportBatch
+    {
+        $this->post(route('imports.upload'), ['file' => $file ?? $this->xlsx()])->assertRedirect();
+        $batch = ImportBatch::query()->latest('id')->firstOrFail();
+        $this->post(route('imports.configure', $batch), ['mappings' => ['ANA' => [
+            'action' => 'import', 'account_id' => $account->id,
+        ]]])->assertRedirect()->assertSessionHasNoErrors();
+
+        return $batch;
+    }
+
     private function account(string $name): BenefitAccount
     {
         $program = new BenefitProgram;
@@ -547,7 +744,7 @@ class MvpIntegrationTest extends TestCase
         return $account;
     }
 
-    private function xlsx(string $name = 'mileage.xlsx', string $sheet = 'ANA', string $description = '利用', bool $formula = false, bool $duplicate = false, ?string $balanceOverride = null, bool $aggregate = false, int $historyRows = 0, ?string $programLabel = null, bool $actualLayout = false): UploadedFile
+    private function xlsx(string $name = 'mileage.xlsx', string $sheet = 'ANA', string $description = '利用', bool $formula = false, bool $duplicate = false, ?string $balanceOverride = null, bool $aggregate = false, int $historyRows = 0, ?string $programLabel = null, bool $actualLayout = false, bool $additionalEarn = false): UploadedFile
     {
         $path = tempnam(sys_get_temp_dir(), 'benefit-xlsx');
         $zip = new ZipArchive;
@@ -568,6 +765,9 @@ class MvpIntegrationTest extends TestCase
         }
         if ($duplicate) {
             $rows[] = $rows[2];
+        }
+        if ($additionalEarn) {
+            $rows[] = ['2026-09-03', '追加獲得', '100', '1335', 'private@example.com'];
         }
         if ($aggregate) {
             $rows[0] = array_merge($rows[0], ['日付', '数量']);

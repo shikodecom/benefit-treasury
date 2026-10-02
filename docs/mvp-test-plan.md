@@ -35,3 +35,11 @@ PRごとに `vendor/bin/pint --test`、`php artisan test --testsuite=Feature`、
 - 全体: E2E-03〜05の専用通しテストと、本番ブラウザ・375px実機相当での操作確認を追加する。375pxは合成データのブラウザで確認済み。
 
 これらが未実施の間は、Issue #14 の release gate を通過した扱いにしない。
+
+## 口座別Excel重複判定 (#18)
+
+- Featureで別名義・別口座の同一履歴、改名再取込、シート／行単位の再マッピング、作成予定口座の再利用、重複行を含む追加履歴の残高検算を確認する。
+- 既存キーの移行はcommit済み取引の口座を正本とし、移行→rollback→再移行、未解決履歴での全更新中止、別口座の同一元行を登録した後のrollback拒否を確認する。
+- `tests/manual/mysql-concurrency.php` は2プロセスで別batchの同一口座取込、同じbatchの二重実行、同じ作成予定口座の競合を各5回検証する。既存キーのMySQL移行と再取込も同スクリプトで確認する。
+- 2026-10-02: ローカルの隔離MySQL 8.0.46で上記と既存の台帳・出品・移行競合を全5回pass。Featureは68件/655 assertions、Pint、Blade cache、Vite buildもpass。
+- 実データの移行とMySQL取込性能の最終評価は #22 に残る。
