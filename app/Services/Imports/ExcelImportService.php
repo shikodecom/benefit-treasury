@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 class ExcelImportService
 {
-    public const VERSION = '2026.10.1';
+    public const VERSION = '2026.10.2';
 
     private const COLUMNS = [
         'date' => ['日付', '年月日', '取引日', '獲得日', '利用日', 'date', 'transaction date'],
@@ -30,7 +30,7 @@ class ExcelImportService
 
     public function __construct(private readonly SafeXlsxReader $reader,
         private readonly ImportSanitizer $sanitizer, private readonly BenefitProgramResolver $programs,
-        private readonly BenefitTransactionService $transactions) {}
+        private readonly BenefitTransactionService $transactions, private readonly MappedImportService $mapped) {}
 
     public function analyze(UploadedFile $file): ImportBatch
     {
@@ -49,6 +49,17 @@ class ExcelImportService
             $batch->status = 'preview';
             $batch->save();
             foreach ($sheets as $sheet => $rows) {
+                if ($importer = $this->mapped->importer($sheet)) {
+                    $candidates = $importer->analyze($sheet, $rows);
+                    if ($candidates === []) {
+                        $this->record($batch, $sheet, 0, 'needs_review', 'unsupported_headers', [], null, '対応する移行元・移行先列を確認できません。');
+                    }
+                    foreach ($candidates as $candidate) {
+                        $this->record($batch, $sheet, $candidate['number'], 'needs_review', 'mapping_required', $candidate['raw'], $candidate['fingerprint'], null, $importer->type());
+                    }
+
+                    continue;
+                }
                 $type = $this->sheetType($sheet);
                 if ($type === 'excluded') {
                     $this->record($batch, $sheet, 0, 'skipped_out_of_scope', 'out_of_scope', [], null, null, 'excluded');
@@ -113,6 +124,10 @@ class ExcelImportService
                     return;
                 }
                 if ($record->record_type !== 'transaction') {
+                    if (in_array($record->record_type, ['transfer', 'conversion_rule'], true)) {
+                        $this->mapped->preview($record, $mapping);
+                    }
+
                     return;
                 }
                 $account = empty($mapping['create_account']) ? BenefitAccount::query()->with('program')->find($mapping['account_id'] ?? 0) : null;
@@ -180,12 +195,22 @@ class ExcelImportService
                 abort(409);
             }
             if ($data['action'] === 'skip') {
+                if (in_array($record->record_type, ['transfer', 'conversion_rule'], true)) {
+                    $this->mapped->preview($record, $record->normalized_data_json['_mapping'] ?? [], $data);
+
+                    return;
+                }
                 $record->import_status = 'skipped_out_of_scope';
                 $record->save();
 
                 return;
             }
             if ($record->record_type !== 'transaction') {
+                if (in_array($record->record_type, ['transfer', 'conversion_rule'], true)) {
+                    $this->mapped->preview($record, $record->normalized_data_json['_mapping'] ?? [], $data);
+
+                    return;
+                }
                 abort(409);
             }
             $account = BenefitAccount::query()->with('program')->findOrFail($data['account_id']);
@@ -246,6 +271,11 @@ class ExcelImportService
                     if (! in_array($record->import_status, ['ready', 'warning'], true)) {
                         return;
                     }
+                    if (in_array($record->record_type, ['transfer', 'conversion_rule'], true)) {
+                        $this->mapped->execute($record);
+
+                        return;
+                    }
                     $data = $record->normalized_data_json;
                     $account = $data['account_id'] ? BenefitAccount::query()->lockForUpdate()->findOrFail($data['account_id']) : $this->plannedAccount($data['account_plan']);
                     if (! $data['account_id']) {
@@ -272,10 +302,16 @@ class ExcelImportService
                     $record->save();
                 });
             } catch (\Throwable) {
-                $record->import_status = 'error';
-                $record->warning_code = 'commit_failed';
-                $record->error_message = '取引を登録できませんでした。口座残高・順序・取引種別を確認してください。';
-                $record->save();
+                DB::transaction(function () use ($record): void {
+                    $record = ImportRecord::query()->lockForUpdate()->findOrFail($record->id);
+                    if (in_array($record->import_status, ['imported', 'skipped_duplicate'], true)) {
+                        return;
+                    }
+                    $record->import_status = 'error';
+                    $record->warning_code = 'commit_failed';
+                    $record->error_message = '登録できませんでした。口座・数量・状態・既存取引の対応を確認してください。';
+                    $record->save();
+                });
             }
         }
         $this->updateCounts($batch);
@@ -287,7 +323,7 @@ class ExcelImportService
     public function verify(ImportBatch $batch): void
     {
         $balances = [];
-        foreach ($batch->records()->whereIn('import_status', ['ready', 'warning', 'imported', 'skipped_duplicate'])->orderBy('source_sheet')->orderBy('source_row_number')->cursor() as $record) {
+        foreach ($batch->records()->where('record_type', 'transaction')->whereIn('import_status', ['ready', 'warning', 'imported', 'skipped_duplicate'])->orderBy('source_sheet')->orderBy('source_row_number')->cursor() as $record) {
             DB::transaction(function () use ($record, &$balances): void {
                 $record = ImportRecord::query()->lockForUpdate()->findOrFail($record->id);
                 if (! in_array($record->import_status, ['ready', 'warning', 'imported', 'skipped_duplicate'], true)) {
