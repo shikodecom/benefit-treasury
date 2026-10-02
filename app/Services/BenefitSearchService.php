@@ -9,6 +9,7 @@ use App\Models\BenefitTransaction;
 use App\Models\BenefitTransferGroup;
 use App\Models\ConversionRule;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 class BenefitSearchService
@@ -26,8 +27,10 @@ class BenefitSearchService
         $lots = BenefitLot::query()->with(['account.program', 'account.householdMember'])
             ->joinSub($balance, 'balance', 'balance.lot_id', '=', 'benefit_lots.id')
             ->leftJoinSub($listed, 'reserved', 'reserved.lot_id', '=', 'benefit_lots.id')
-            ->select('benefit_lots.*')->selectRaw('balance.remaining, COALESCE(reserved.listed_quantity, 0) AS listed_quantity')
-            ->whereNull('benefit_lots.cancelled_at')->where('balance.remaining', '>', 0);
+            ->select('benefit_lots.*')->selectRaw('balance.remaining, COALESCE(reserved.listed_quantity, 0) AS listed_quantity');
+        if (empty($filters['include_history']) || filled($filters['preset'] ?? null)) {
+            $lots->whereNull('benefit_lots.cancelled_at')->where('balance.remaining', '>', 0);
+        }
         if ($term !== '') {
             $lots->where(function ($q) use ($like): void {
                 $q->where('benefit_lots.display_name', 'like', $like)->orWhere('benefit_lots.usage_conditions', 'like', $like)
@@ -38,15 +41,7 @@ class BenefitSearchService
                     ->orWhereHas('listingItems.listing', fn ($listing) => $listing->where('title', 'like', $like)->orWhere('marketplace', 'like', $like));
             });
         }
-        if ($member = $filters['member'] ?? null) {
-            $lots->whereHas('account', fn ($q) => $member === 'shared' ? $q->whereNull('household_member_id') : $q->where('household_member_id', $member));
-        }
-        if ($category = $filters['category'] ?? null) {
-            $lots->whereHas('account.program', fn ($q) => $q->where('category', $category));
-        }
-        if ($program = $filters['program'] ?? null) {
-            $lots->whereHas('account', fn ($q) => $q->where('program_id', $program));
-        }
+        $lots->whereHas('account', fn ($q) => $this->filterAccount($q, $filters));
         if ($policy = $filters['policy'] ?? null) {
             $lots->where('benefit_lots.action_policy', $policy);
         }
@@ -56,9 +51,6 @@ class BenefitSearchService
             } else {
                 $lots->where('benefit_lots.transfer_restriction', $restriction);
             }
-        }
-        if (! empty($filters['active_only'])) {
-            $lots->whereHas('account', fn ($q) => $q->where('active', true)->whereHas('program', fn ($p) => $p->where('active', true)));
         }
         $today = CarbonImmutable::now('Asia/Tokyo');
         if (($days = $filters['expires_within'] ?? null) !== null && $days !== '') {
@@ -105,28 +97,16 @@ class BenefitSearchService
         $plain = DB::table('benefit_transactions')->whereNull('lot_id')->select('account_id')
             ->selectRaw("SUM(CASE WHEN direction = 'in' THEN quantity ELSE -quantity END) AS balance")->groupBy('account_id');
         $accounts = BenefitAccount::query()->with(['program', 'householdMember'])->joinSub($plain, 'plain', 'plain.account_id', '=', 'benefit_accounts.id')
-            ->select('benefit_accounts.*')->selectRaw('plain.balance AS plain_balance')->where('plain.balance', '!=', 0);
+            ->select('benefit_accounts.*')->selectRaw('plain.balance AS plain_balance');
+        if (empty($filters['include_history'])) {
+            $accounts->where('plain.balance', '!=', 0);
+        }
         if ($term !== '') {
             $accounts->where(fn ($q) => $q->where('benefit_accounts.account_label', 'like', $like)
                 ->orWhereHas('program', fn ($p) => $p->where('name', 'like', $like)->orWhere('provider', 'like', $like)
                     ->orWhereHas('aliases', fn ($alias) => $alias->where('alias', 'like', $like))));
         }
-        if ($member = $filters['member'] ?? null) {
-            if ($member === 'shared') {
-                $accounts->whereNull('benefit_accounts.household_member_id');
-            } else {
-                $accounts->where('benefit_accounts.household_member_id', $member);
-            }
-        }
-        if ($category = $filters['category'] ?? null) {
-            $accounts->whereHas('program', fn ($q) => $q->where('category', $category));
-        }
-        if ($program = $filters['program'] ?? null) {
-            $accounts->where('benefit_accounts.program_id', $program);
-        }
-        if (! empty($filters['active_only'])) {
-            $accounts->where('benefit_accounts.active', true)->whereHas('program', fn ($q) => $q->where('active', true));
-        }
+        $this->filterAccount($accounts, $filters);
         if ($status = $filters['transfer_status'] ?? null) {
             $accounts->whereExists(fn ($q) => $this->transferAccountExists($q, 'benefit_accounts.id', $status, $today));
         }
@@ -140,29 +120,114 @@ class BenefitSearchService
         }
 
         $extra = ['transactions' => collect(), 'listings' => collect(), 'transfers' => collect(), 'rules' => collect()];
-        if ($term !== '' && ! array_filter($filters, fn ($value, $key) => ! in_array($key, ['q', 'sort', 'per_page'], true) && $value !== null && $value !== '', ARRAY_FILTER_USE_BOTH)) {
-            $extra['transactions'] = BenefitTransaction::query()->with('account.program')->where(fn ($q) => $q->where('merchant_or_purpose', 'like', $like)->orWhere('memo', 'like', $like)
-                ->orWhereHas('account.program', fn ($p) => $p->where('name', 'like', $like)))->orderByDesc('transaction_at')->limit(10)->get();
-            $extra['listings'] = BenefitListing::query()->where(fn ($q) => $q->where('title', 'like', $like)->orWhere('marketplace', 'like', $like)->orWhere('memo', 'like', $like))->orderByDesc('id')->limit(10)->get();
-            $extra['transfers'] = BenefitTransferGroup::query()->where(fn ($q) => $q->where('name', 'like', $like)->orWhere('purpose', 'like', $like)->orWhere('memo', 'like', $like)
-                ->orWhereHas('targetProgram', fn ($p) => $p->where('name', 'like', $like)))->orderByDesc('id')->limit(10)->get();
-            $extra['rules'] = ConversionRule::query()->with(['fromProgram', 'toProgram'])->where(fn ($q) => $q->where('campaign_name', 'like', $like)->orWhere('conditions_text', 'like', $like)
-                ->orWhere('notes', 'like', $like)->orWhereHas('fromProgram', fn ($p) => $p->where('name', 'like', $like))
-                ->orWhereHas('toProgram', fn ($p) => $p->where('name', 'like', $like)))->orderByDesc('id')->limit(10)->get();
-        }
-        if (($filters['transfer_status'] ?? null) || ($filters['preset'] ?? null) === 'overdue') {
-            $transferStatus = $filters['transfer_status'] ?? 'overdue';
+        $lotOnly = filled($filters['policy'] ?? null) || filled($filters['restriction'] ?? null)
+            || filled($filters['expires_within'] ?? null) || filled($filters['listing'] ?? null)
+            || in_array($filters['preset'] ?? null, ['urgent', 'expiry7', 'expiry30', 'undecided', 'sell_unlisted', 'listed_expiring'], true);
+        $status = $filters['transfer_status'] ?? (($filters['preset'] ?? null) === 'overdue' ? 'overdue' : null);
+        $accountFilters = ! empty($filters['member']) || filled($filters['category'] ?? null)
+            || filled($filters['program'] ?? null) || ! empty($filters['active_only']);
+        $showExtra = ! $lotOnly && ($term !== '' || $status || ! empty($filters['member'])
+            || filled($filters['category'] ?? null) || filled($filters['program'] ?? null));
+        if ($showExtra) {
+            if (! $status) {
+                $extra['transactions'] = BenefitTransaction::query()->with('account.program')
+                    ->whereHas('account', fn ($q) => $this->filterAccount($q, $filters))
+                    ->when($term !== '', fn ($q) => $q->where(fn ($inner) => $inner->where('merchant_or_purpose', 'like', $like)
+                        ->orWhere('memo', 'like', $like)->orWhereHas('account', fn ($a) => $this->accountKeyword($a, $like))))
+                    ->orderByDesc('transaction_at')->limit(10)->get();
+                $extra['listings'] = BenefitListing::query()
+                    ->when($accountFilters, fn ($q) => $q->whereHas('items.lot.account', fn ($a) => $this->filterAccount($a, $filters)))
+                    ->when($term !== '', fn ($q) => $q->where(fn ($inner) => $inner->where('title', 'like', $like)
+                        ->orWhere('marketplace', 'like', $like)->orWhere('memo', 'like', $like)
+                        ->orWhereHas('items.lot', fn ($lot) => $lot->where('display_name', 'like', $like)
+                            ->orWhereHas('account', fn ($a) => $this->accountKeyword($a, $like)))))
+                    ->orderByDesc('id')->limit(10)->get();
+                // Rules have no holder. Exclude them when a holder condition is selected.
+                if (empty($filters['member'])) {
+                    $extra['rules'] = ConversionRule::query()->with(['fromProgram', 'toProgram'])
+                        ->where(fn ($q) => $q->whereHas('fromProgram', fn ($p) => $this->filterProgram($p, $filters))
+                            ->orWhereHas('toProgram', fn ($p) => $this->filterProgram($p, $filters)))
+                        ->when($term !== '', fn ($q) => $q->where(fn ($inner) => $inner->where('campaign_name', 'like', $like)
+                            ->orWhere('conditions_text', 'like', $like)->orWhere('notes', 'like', $like)
+                            ->orWhereHas('fromProgram', fn ($p) => $this->programKeyword($p, $like))
+                            ->orWhereHas('toProgram', fn ($p) => $this->programKeyword($p, $like))))
+                        ->orderByDesc('id')->limit(10)->get();
+                }
+            }
             $extra['transfers'] = BenefitTransferGroup::query()->with('targetProgram')
-                ->whereHas('steps', fn ($q) => $transferStatus === 'overdue'
-                    ? $q->where('status', 'processing')->whereDate('expected_complete_at', '<', $today->toDateString())
-                    : $q->where('status', $transferStatus))
-                ->when($term !== '', fn ($q) => $q->where(fn ($inner) => $inner->where('name', 'like', $like)->orWhere('purpose', 'like', $like)))
+                ->when($accountFilters || $status, fn ($q) => $q->whereHas('steps', function ($step) use ($filters, $status, $today): void {
+                    if ($status) {
+                        $this->filterStep($step, $status, $today);
+                    }
+                    if (($filters['preset'] ?? null) === 'overdue') {
+                        $this->filterStep($step, 'overdue', $today);
+                    }
+                    $step->where(fn ($q) => $q->whereHas('fromAccount', fn ($a) => $this->filterAccount($a, $filters))
+                        ->orWhereHas('toAccount', fn ($a) => $this->filterAccount($a, $filters)));
+                }))
+                ->when($term !== '', fn ($q) => $q->where(fn ($inner) => $inner->where('name', 'like', $like)
+                    ->orWhere('purpose', 'like', $like)->orWhere('memo', 'like', $like)
+                    ->orWhereHas('targetProgram', fn ($p) => $this->programKeyword($p, $like))
+                    ->orWhereHas('steps', fn ($step) => $step->whereHas('fromAccount', fn ($a) => $this->accountKeyword($a, $like))
+                        ->orWhereHas('toAccount', fn ($a) => $this->accountKeyword($a, $like)))))
                 ->orderByDesc('id')->limit(25)->get();
         }
 
         return ['lots' => $lots->paginate($perPage, ['*'], 'lots_page')->withQueryString(),
             'accounts' => $accounts->orderBy('benefit_accounts.id')->paginate($perPage, ['*'], 'accounts_page')->withQueryString(),
-            'extra' => $extra];
+            'extra' => $extra, 'show_extra' => $showExtra];
+    }
+
+    private function filterAccount(Builder $query, array $filters): void
+    {
+        $members = array_values(array_filter((array) ($filters['member'] ?? []), fn ($v) => $v !== '' && $v !== null));
+        if ($members !== []) {
+            $ids = array_values(array_filter($members, fn ($v) => $v !== 'shared'));
+            $query->where(function ($q) use ($members, $ids): void {
+                $q->whereIn('household_member_id', $ids);
+                if (in_array('shared', $members, true)) {
+                    $q->orWhereNull('household_member_id');
+                }
+            });
+        }
+        if (! empty($filters['active_only'])) {
+            $query->where('active', true);
+        }
+        $query->whereHas('program', fn ($p) => $this->filterProgram($p, $filters));
+    }
+
+    private function filterProgram(Builder $query, array $filters): void
+    {
+        if (filled($filters['program'] ?? null)) {
+            $query->whereKey($filters['program']);
+        }
+        if (filled($filters['category'] ?? null)) {
+            $query->where('category', $filters['category']);
+        }
+        if (! empty($filters['active_only'])) {
+            $query->where('active', true);
+        }
+    }
+
+    private function accountKeyword(Builder $query, string $like): void
+    {
+        $query->where(fn ($q) => $q->where('account_label', 'like', $like)
+            ->orWhereHas('program', fn ($p) => $this->programKeyword($p, $like)));
+    }
+
+    private function programKeyword(Builder $query, string $like): void
+    {
+        $query->where(fn ($q) => $q->where('name', 'like', $like)->orWhere('provider', 'like', $like)
+            ->orWhereHas('aliases', fn ($alias) => $alias->where('alias', 'like', $like)));
+    }
+
+    private function filterStep(Builder $query, string $status, CarbonImmutable $today): void
+    {
+        if ($status === 'overdue') {
+            $query->where('status', 'processing')->whereDate('expected_complete_at', '<', $today->toDateString());
+        } else {
+            $query->where('status', $status);
+        }
     }
 
     private function transferAccountExists($query, string $accountColumn, string $status, CarbonImmutable $today): void

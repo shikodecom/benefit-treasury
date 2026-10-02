@@ -3,3 +3,7 @@
 
 .card,.list-item{min-width:0;overflow-wrap:anywhere}.list-item form{max-width:100%}.list-item select,.list-item input{max-width:100%}
 .search-advanced{border:1px solid #dbe7de;border-radius:10px;margin:14px 0;padding:11px 13px}.search-advanced summary{cursor:pointer;font-weight:700;color:#176b43}.search-advanced-fields{display:grid;gap:12px;margin-top:14px}.search-chips{margin:0 0 16px}.search-chips .button{font-size:.86rem;padding:.45rem .7rem}.notification-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 16px;margin:0 0 20px}.notification-option{display:flex;align-items:center;gap:10px;min-height:36px;overflow-wrap:anywhere}.notification-option input{width:18px;height:18px;flex:none;margin:0}
+
+.member-options{display:grid;gap:10px;border:1px solid #dbe7de;border-radius:9px;padding:12px;min-width:0}.member-options legend{font-weight:700}.member-options .check{overflow-wrap:anywhere}.member-options .check input{flex:none}.search-chips .button{max-width:100%;overflow-wrap:anywhere}
+
+.search-pagination{margin-top:20px}.search-pagination [aria-disabled="true"]{opacity:.5;cursor:default}.search-pagination .button{min-width:44px;min-height:44px}
