@@ -177,6 +177,24 @@ function mappedBatch(BenefitAccount $from, BenefitAccount $to, string $source, s
     return $batch;
 }
 
+function voucherBatch(BenefitAccount $account, string $source, array $options = []): ImportBatch
+{
+    $batch = new ImportBatch;
+    $batch->forceFill(['source_filename' => 'synthetic-voucher.xlsx', 'file_checksum' => hash('sha256', $source),
+        'importer_version' => ExcelImportService::VERSION, 'started_at' => now(), 'status' => 'preview', 'total_rows' => 1])->save();
+    $record = new ImportRecord;
+    $record->forceFill(['import_batch_id' => $batch->id, 'source_sheet' => 'プレ商品券',
+        'source_row_number' => 2, 'row_fingerprint' => hash('sha256', $source), 'record_type' => 'premium_voucher',
+        'import_status' => 'needs_review', 'raw_data_json' => ['program' => $account->program->name]])->save();
+    $mapping = array_replace(['action' => 'import', 'account_id' => $account->id, 'confirm_native' => 1, 'confirm_snapshot' => 1,
+        'remaining_quantity' => '7', 'remaining_yen' => 700, 'native_unit' => $account->program->unit_name,
+        'acquired_at' => '2026-09-01', 'expires_at' => '2027-12-31', 'snapshot_at' => '2026-10-01', 'voucher_state' => 'partial'], $options);
+    DB::transaction(fn () => app(MappedImportService::class)->preview($record, $mapping));
+    assertEqual('ready', $record->fresh()->import_status, 'voucher preview status');
+
+    return $batch;
+}
+
 if (($argv[1] ?? null) === '--worker') {
     runWorker($argv[2], (int) $argv[3]);
     exit;
@@ -300,5 +318,38 @@ for ($round = 1; $round <= 5; $round++) {
     $versionSecond = mappedBatch($mappedFrom, $mappedTo, 'version-second-'.$round, 'conversion_rule', ['rule_group_id' => $rule->rule_group_id]);
     race('import', [$versionFirst->id, $versionSecond->id], 'conversion_rule_groups', $rule->rule_group_id, ['ok', 'ok']);
     assertEqual([1, 2, 3], ConversionRule::query()->where('rule_group_id', $rule->rule_group_id)->orderBy('version_no')->pluck('version_no')->all(), 'concurrent rule versions');
+    $voucher = account("Voucher same row {$round}");
+    $voucherFirst = voucherBatch($voucher, 'voucher-'.$round);
+    $voucherSecond = voucherBatch($voucher, 'voucher-'.$round);
+    race('import', [$voucherFirst->id, $voucherSecond->id], 'benefit_accounts', $voucher->id, ['ok', 'ok']);
+    assertEqual(1, $voucher->lots()->count(), 'voucher competing lot count');
+    assertEqual(1, $voucher->transactions()->count(), 'voucher competing transaction count');
+    assertEqual('7.0000', $read->accountBalance($voucher->id), 'voucher competing balance');
+    assertEqual(1, ImportRecord::query()->whereIn('import_batch_id', [$voucherFirst->id, $voucherSecond->id])->where('import_status', 'skipped_duplicate')->count(), 'voucher duplicate count');
+
+    $voucherSameAccount = account("Voucher same batch {$round}");
+    $voucherSame = voucherBatch($voucherSameAccount, 'voucher-same-'.$round);
+    race('import', [$voucherSame->id, $voucherSame->id], 'import_records', $voucherSame->records()->firstOrFail()->id, ['ok', 'ok']);
+    assertEqual(1, $voucherSameAccount->lots()->count(), 'voucher same batch lot count');
+    assertEqual('imported', $voucherSame->records()->firstOrFail()->import_status, 'voucher same batch status');
+
+    $voucherConflict = account("Voucher competing snapshot {$round}");
+    $snapshotFirst = voucherBatch($voucherConflict, 'snapshot-first-'.$round);
+    $snapshotSecond = voucherBatch($voucherConflict, 'snapshot-second-'.$round);
+    race('import', [$snapshotFirst->id, $snapshotSecond->id], 'benefit_accounts', $voucherConflict->id, ['ok', 'ok']);
+    assertEqual(1, $voucherConflict->lots()->count(), 'competing snapshot leaves no orphan lot');
+    assertEqual(1, ImportRecord::query()->whereIn('import_batch_id', [$snapshotFirst->id, $snapshotSecond->id])->where('import_status', 'error')->count(), 'competing snapshot error count');
+    assertEqual(1, DB::table('imported_fingerprints')->whereIn('import_record_id', [$snapshotFirst->records()->first()->id, $snapshotSecond->records()->first()->id])->count(), 'competing snapshot key count');
+
+    $voucherPlanAccount = account("Voucher planned {$round}");
+    $voucherPlan = ['create_account' => 1, 'new_program_id' => $voucherPlanAccount->program_id, 'new_label' => 'Planned voucher'];
+    $voucherPlanFirst = voucherBatch($voucherPlanAccount, 'voucher-plan-'.$round, $voucherPlan);
+    $voucherPlanSecond = voucherBatch($voucherPlanAccount, 'voucher-plan-'.$round, $voucherPlan);
+    race('import', [$voucherPlanFirst->id, $voucherPlanSecond->id], 'benefit_programs', $voucherPlanAccount->program_id, ['ok', 'ok']);
+    $plannedVoucherAccounts = BenefitAccount::query()->where('program_id', $voucherPlanAccount->program_id)->where('account_label', 'Planned voucher')->get();
+    assertEqual(1, $plannedVoucherAccounts->count(), 'voucher planned account count');
+    assertEqual(1, $plannedVoucherAccounts->first()->lots()->count(), 'voucher planned lot count');
+    assertEqual('7.0000', $read->accountBalance($plannedVoucherAccounts->first()->id), 'voucher planned balance');
+
     echo "Round {$round}: all MySQL concurrency invariants passed.\n";
 }

@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 class ExcelImportService
 {
-    public const VERSION = '2026.10.2';
+    public const VERSION = '2026.10.3';
 
     private const COLUMNS = [
         'date' => ['日付', '年月日', '取引日', '獲得日', '利用日', 'date', 'transaction date'],
@@ -52,7 +52,7 @@ class ExcelImportService
                 if ($importer = $this->mapped->importer($sheet)) {
                     $candidates = $importer->analyze($sheet, $rows);
                     if ($candidates === []) {
-                        $this->record($batch, $sheet, 0, 'needs_review', 'unsupported_headers', [], null, '対応する移行元・移行先列を確認できません。');
+                        $this->record($batch, $sheet, 0, 'needs_review', 'unsupported_headers', [], null, '対応する必須列を確認できません。');
                     }
                     foreach ($candidates as $candidate) {
                         $this->record($batch, $sheet, $candidate['number'], 'needs_review', 'mapping_required', $candidate['raw'], $candidate['fingerprint'], null, $importer->type());
@@ -124,7 +124,7 @@ class ExcelImportService
                     return;
                 }
                 if ($record->record_type !== 'transaction') {
-                    if (in_array($record->record_type, ['transfer', 'conversion_rule'], true)) {
+                    if (in_array($record->record_type, ['transfer', 'conversion_rule', 'premium_voucher'], true)) {
                         $this->mapped->preview($record, $mapping);
                     }
 
@@ -195,7 +195,7 @@ class ExcelImportService
                 abort(409);
             }
             if ($data['action'] === 'skip') {
-                if (in_array($record->record_type, ['transfer', 'conversion_rule'], true)) {
+                if (in_array($record->record_type, ['transfer', 'conversion_rule', 'premium_voucher'], true)) {
                     $this->mapped->preview($record, $record->normalized_data_json['_mapping'] ?? [], $data);
 
                     return;
@@ -206,7 +206,7 @@ class ExcelImportService
                 return;
             }
             if ($record->record_type !== 'transaction') {
-                if (in_array($record->record_type, ['transfer', 'conversion_rule'], true)) {
+                if (in_array($record->record_type, ['transfer', 'conversion_rule', 'premium_voucher'], true)) {
                     $this->mapped->preview($record, $record->normalized_data_json['_mapping'] ?? [], $data);
 
                     return;
@@ -271,7 +271,7 @@ class ExcelImportService
                     if (! in_array($record->import_status, ['ready', 'warning'], true)) {
                         return;
                     }
-                    if (in_array($record->record_type, ['transfer', 'conversion_rule'], true)) {
+                    if (in_array($record->record_type, ['transfer', 'conversion_rule', 'premium_voucher'], true)) {
                         $this->mapped->execute($record);
 
                         return;

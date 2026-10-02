@@ -25,6 +25,16 @@ abstract class MappedSheetImporter
 
     public function validatePreview(array $data): void {}
 
+    public function prepareCommit(array $data): array
+    {
+        return $data;
+    }
+
+    protected function requiredHeaders(): array
+    {
+        return ['from_program', 'to_program'];
+    }
+
     public function analyze(string $sheet, array $rows): array
     {
         $headers = [];
@@ -38,7 +48,7 @@ abstract class MappedSheetImporter
                     }
                 }
             }
-            if (in_array('from_program', $found, true) && in_array('to_program', $found, true)) {
+            if (array_diff($this->requiredHeaders(), $found) === []) {
                 $headers = $found;
                 $headerNo = $number;
                 break;

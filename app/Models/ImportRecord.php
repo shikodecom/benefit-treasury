@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ImportRecord extends Model
 {
@@ -19,5 +20,10 @@ class ImportRecord extends Model
     public function batch(): BelongsTo
     {
         return $this->belongsTo(ImportBatch::class, 'import_batch_id');
+    }
+
+    public function snapshotTransactions(): HasMany
+    {
+        return $this->hasMany(BenefitTransaction::class, 'import_record_id');
     }
 }

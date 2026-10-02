@@ -32,7 +32,7 @@ class ExcelImportController extends Controller
 
     public function show(ImportBatch $batch): View
     {
-        $records = $batch->records()->orderBy('source_sheet')->orderBy('source_row_number')->paginate(100)->withQueryString();
+        $records = $batch->records()->with('snapshotTransactions')->orderBy('source_sheet')->orderBy('source_row_number')->paginate(100)->withQueryString();
         $accounts = BenefitAccount::query()->with(['program', 'householdMember'])->where('active', true)->orderBy('id')->get();
         $programs = BenefitProgram::query()->where('active', true)->orderBy('name')->get();
         $members = HouseholdMember::query()->where('active', true)->orderBy('display_name')->get();
@@ -70,7 +70,7 @@ class ExcelImportController extends Controller
     public function override(Request $request, ImportBatch $batch, ImportRecord $record, ExcelImportService $service): RedirectResponse
     {
         abort_unless($record->import_batch_id === $batch->id, 404);
-        if (in_array($record->record_type, ['transfer', 'conversion_rule'], true) && $request->has('row')) {
+        if (in_array($record->record_type, ['transfer', 'conversion_rule', 'premium_voucher'], true) && $request->has('row')) {
             $request->validate(['row' => ['array']]);
             $request->merge($request->input('row'));
         }
@@ -102,16 +102,22 @@ class ExcelImportController extends Controller
             $rules[$prefix.$field] = ['nullable', 'integer', Rule::exists('benefit_transactions', 'id')];
         }
         $rules[$prefix.'rule_group_id'] = ['nullable', 'integer', Rule::exists('conversion_rule_groups', 'id')];
-        foreach (['confirm_native', 'confirm_status', 'activate_rule', 'campaign_only'] as $field) {
+        foreach (['confirm_native', 'confirm_snapshot', 'create_account', 'confirm_status', 'activate_rule', 'campaign_only'] as $field) {
             $rules[$prefix.$field] = ['nullable', 'boolean'];
         }
         $rules[$prefix.'status'] = ['nullable', Rule::in(['planned', 'processing', 'completed'])];
-        foreach (['source_quantity', 'expected_destination_quantity', 'actual_destination_quantity', 'planning_equivalent_quantity', 'from_quantity', 'to_quantity'] as $field) {
+        foreach (['source_quantity', 'expected_destination_quantity', 'actual_destination_quantity', 'planning_equivalent_quantity', 'from_quantity', 'to_quantity', 'remaining_quantity', 'remaining_yen'] as $field) {
             $rules[$prefix.$field] = ['nullable', 'numeric', 'min:0', 'decimal:0,4', 'lt:100000000000000'];
         }
-        foreach (['started_at', 'expected_complete_at', 'completed_at', 'valid_from', 'valid_to'] as $field) {
+        foreach (['started_at', 'expected_complete_at', 'completed_at', 'valid_from', 'valid_to', 'acquired_at', 'expires_at', 'snapshot_at'] as $field) {
             $rules[$prefix.$field] = ['nullable', 'date_format:Y-m-d'];
         }
+
+        $rules[$prefix.'voucher_state'] = ['nullable', Rule::in(['unused', 'partial', 'used'])];
+        $rules[$prefix.'native_unit'] = ['nullable', 'string', 'max:40'];
+        $rules[$prefix.'new_program_id'] = ['nullable', 'integer', Rule::exists('benefit_programs', 'id')];
+        $rules[$prefix.'new_member_id'] = ['nullable', 'integer', Rule::exists('household_members', 'id')];
+        $rules[$prefix.'new_label'] = ['nullable', 'string', 'max:150'];
 
         return $rules;
     }
