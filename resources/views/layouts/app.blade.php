@@ -43,6 +43,9 @@
             <ul>@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
         </div>
     @endif
+    @if(is_array(request()->query('search')))
+        <div class="crumb"><a href="{{ route('search.index', request()->query('search')) }}">検索結果へ戻る</a></div>
+    @endif
     @yield('content')
 </main>
 </body>

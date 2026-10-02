@@ -13,8 +13,13 @@ class BenefitSearchController extends Controller
 {
     public function index(Request $request, BenefitSearchService $service): View
     {
+        if ($request->has('member')) {
+            $request->merge(['member' => array_values(array_filter((array) $request->query('member'), fn ($v) => $v !== '' && $v !== null))]);
+        }
         $filters = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'], 'member' => ['nullable', 'string', 'max:30'],
+            'q' => ['nullable', 'string', 'max:100'], 'member' => ['nullable', 'array', 'max:100'],
+            'member.*' => ['required', 'string', 'max:30', 'distinct'],
+            'include_history' => ['nullable', 'boolean'],
             'category' => ['nullable', Rule::in(['point', 'mile', 'e_money', 'gift', 'shareholder_benefit', 'coupon', 'discount', 'campaign', 'other'])],
             'program' => ['nullable', 'integer', Rule::exists('benefit_programs', 'id')],
             'policy' => ['nullable', Rule::in(['self_use', 'sell_now', 'hold', 'bundle', 'do_not_sell', 'transfer_to_points', 'undecided'])],
@@ -27,9 +32,10 @@ class BenefitSearchController extends Controller
             'sort' => ['nullable', Rule::in(['expiry', 'name', 'updated'])],
             'per_page' => ['nullable', Rule::in(['25', '50', '100'])],
         ]);
-        if (isset($filters['member']) && $filters['member'] !== 'shared'
-            && ! HouseholdMember::query()->whereKey($filters['member'])->exists()) {
-            abort(422);
+        foreach ($filters['member'] ?? [] as $member) {
+            if ($member !== 'shared' && (! ctype_digit($member) || ! HouseholdMember::query()->whereKey($member)->exists())) {
+                abort(422);
+            }
         }
         $results = $service->search($filters);
         $members = HouseholdMember::query()->orderBy('display_name')->get();
