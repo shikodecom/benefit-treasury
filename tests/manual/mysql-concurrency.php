@@ -11,6 +11,7 @@ use App\Models\BenefitListing;
 use App\Models\BenefitLot;
 use App\Models\BenefitProgram;
 use App\Models\BenefitTransferStep;
+use App\Models\ConversionRule;
 use App\Models\ImportBatch;
 use App\Models\ImportRecord;
 use App\Services\BenefitListingService;
@@ -20,6 +21,7 @@ use App\Services\BenefitTransactionService;
 use App\Services\BenefitTransferService;
 use App\Services\Imports\ExcelImportService;
 use App\Services\Imports\ImportFingerprint;
+use App\Services\Imports\MappedImportService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -157,6 +159,24 @@ function importBatch(BenefitAccount $account, string $source, ?array $plan = nul
     return $batch;
 }
 
+function mappedBatch(BenefitAccount $from, BenefitAccount $to, string $source, string $type = 'transfer', array $options = []): ImportBatch
+{
+    $batch = new ImportBatch;
+    $batch->forceFill(['source_filename' => 'synthetic-mapped.xlsx', 'file_checksum' => hash('sha256', $source),
+        'importer_version' => ExcelImportService::VERSION, 'started_at' => now(), 'status' => 'preview', 'total_rows' => 1])->save();
+    $record = new ImportRecord;
+    $record->forceFill(['import_batch_id' => $batch->id, 'source_sheet' => $type === 'transfer' ? 'ANA移行' : 'ポイントマイル状況',
+        'source_row_number' => 2, 'row_fingerprint' => hash('sha256', $source), 'record_type' => $type,
+        'import_status' => 'needs_review', 'raw_data_json' => []])->save();
+    $mapping = $type === 'transfer'
+        ? ['from_account_id' => $from->id, 'to_account_id' => $to->id, 'source_quantity' => '7', 'status' => 'planned', 'confirm_status' => 1]
+        : ['from_program_id' => $from->program_id, 'to_program_id' => $to->program_id, 'from_quantity' => '100', 'to_quantity' => '50'];
+    DB::transaction(fn () => app(MappedImportService::class)->preview($record, array_replace($mapping, ['action' => 'import', 'confirm_native' => 1], $options)));
+    assertEqual('ready', $record->fresh()->import_status, 'mapped preview status');
+
+    return $batch;
+}
+
 if (($argv[1] ?? null) === '--worker') {
     runWorker($argv[2], (int) $argv[3]);
     exit;
@@ -247,5 +267,38 @@ for ($round = 1; $round <= 5; $round++) {
     $plannedAccounts = BenefitAccount::query()->where('program_id', $importAccount->program_id)->where('account_label', $plan['label'])->get();
     assertEqual(1, $plannedAccounts->count(), 'planned import account count');
     assertEqual('10.0000', $read->accountBalance($plannedAccounts->first()->id), 'planned import balance');
+
+    $mappedFrom = account("Mapped source {$round}");
+    $mappedTo = account("Mapped destination {$round}");
+    $mappedFirst = mappedBatch($mappedFrom, $mappedTo, 'mapped-transfer-'.$round);
+    $mappedSecond = mappedBatch($mappedFrom, $mappedTo, 'mapped-transfer-'.$round);
+    race('import', [$mappedFirst->id, $mappedSecond->id], 'benefit_accounts', $mappedFrom->id, ['ok', 'ok']);
+    assertEqual(1, BenefitTransferStep::query()->where('from_account_id', $mappedFrom->id)->count(), 'competing mapped step count');
+    assertEqual(1, ImportRecord::query()->whereIn('import_batch_id', [$mappedFirst->id, $mappedSecond->id])->where('import_status', 'skipped_duplicate')->count(), 'mapped duplicate count');
+    $mappedSame = mappedBatch($mappedFrom, $mappedTo, 'mapped-same-batch-'.$round);
+    race('import', [$mappedSame->id, $mappedSame->id], 'import_records', $mappedSame->records()->firstOrFail()->id, ['ok', 'ok']);
+    assertEqual('imported', $mappedSame->records()->firstOrFail()->import_status, 'mapped same batch status');
+    assertEqual(2, BenefitTransferStep::query()->where('from_account_id', $mappedFrom->id)->count(), 'mapped same batch count');
+
+    $transactions->earn($mappedFrom, '10', '2026-10-01');
+    $historicalOut = $transactions->use($mappedFrom, '7', '2026-10-01');
+    $historyOptions = ['status' => 'processing', 'started_at' => '2026-10-01', 'out_transaction_id' => $historicalOut->id];
+    $historyFirst = mappedBatch($mappedFrom, $mappedTo, 'history-first-'.$round, 'transfer', $historyOptions);
+    $historySecond = mappedBatch($mappedFrom, $mappedTo, 'history-second-'.$round, 'transfer', $historyOptions);
+    race('import', [$historyFirst->id, $historySecond->id], 'benefit_accounts', $mappedFrom->id, ['ok', 'ok']);
+    assertEqual(1, BenefitTransferStep::query()->where('from_account_id', $mappedFrom->id)->where('status', 'processing')->count(), 'exclusive history link');
+    assertEqual(1, ImportRecord::query()->whereIn('import_batch_id', [$historyFirst->id, $historySecond->id])->where('import_status', 'error')->count(), 'competing history error');
+    assertEqual('3.0000', $read->accountBalance($mappedFrom->id), 'historical link balance');
+    assertEqual(2, $mappedFrom->transactions()->count(), 'historical link transaction count');
+
+    $ruleFirst = mappedBatch($mappedFrom, $mappedTo, 'mapped-rule-'.$round, 'conversion_rule');
+    $ruleSecond = mappedBatch($mappedFrom, $mappedTo, 'mapped-rule-'.$round, 'conversion_rule');
+    race('import', [$ruleFirst->id, $ruleSecond->id], 'benefit_programs', $mappedFrom->program_id, ['ok', 'ok']);
+    assertEqual(1, ConversionRule::query()->where('from_program_id', $mappedFrom->program_id)->count(), 'competing rule count');
+    $rule = ConversionRule::query()->where('from_program_id', $mappedFrom->program_id)->firstOrFail();
+    $versionFirst = mappedBatch($mappedFrom, $mappedTo, 'version-first-'.$round, 'conversion_rule', ['rule_group_id' => $rule->rule_group_id]);
+    $versionSecond = mappedBatch($mappedFrom, $mappedTo, 'version-second-'.$round, 'conversion_rule', ['rule_group_id' => $rule->rule_group_id]);
+    race('import', [$versionFirst->id, $versionSecond->id], 'conversion_rule_groups', $rule->rule_group_id, ['ok', 'ok']);
+    assertEqual([1, 2, 3], ConversionRule::query()->where('rule_group_id', $rule->rule_group_id)->orderBy('version_no')->pluck('version_no')->all(), 'concurrent rule versions');
     echo "Round {$round}: all MySQL concurrency invariants passed.\n";
 }

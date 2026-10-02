@@ -101,19 +101,18 @@ class BenefitTransactionService
 
     public function reverse(BenefitTransaction $original, bool $managedCorrection = false): BenefitTransaction
     {
-        if (! $managedCorrection && $original->listing_id !== null && $original->transaction_type === 'sell') {
-            throw ValidationException::withMessages(['transaction' => '出品詳細から売却取消を行ってください。']);
-        }
-        if (! $managedCorrection && $original->transfer_step_id !== null) {
-            throw ValidationException::withMessages(['transaction' => '移行詳細から訂正してください。']);
-        }
-        if ($original->transaction_type === 'reversal') {
-            throw ValidationException::withMessages(['transaction' => '取消取引を再び取り消すことはできません。']);
-        }
-
-        return DB::transaction(function () use ($original): BenefitTransaction {
+        return DB::transaction(function () use ($original, $managedCorrection): BenefitTransaction {
             BenefitAccount::query()->lockForUpdate()->findOrFail($original->account_id);
             $lockedOriginal = BenefitTransaction::query()->lockForUpdate()->findOrFail($original->id);
+            if (! $managedCorrection && $lockedOriginal->listing_id !== null && $lockedOriginal->transaction_type === 'sell') {
+                throw ValidationException::withMessages(['transaction' => '出品詳細から売却取消を行ってください。']);
+            }
+            if (! $managedCorrection && $lockedOriginal->transfer_step_id !== null) {
+                throw ValidationException::withMessages(['transaction' => '移行詳細から訂正してください。']);
+            }
+            if ($lockedOriginal->transaction_type === 'reversal') {
+                throw ValidationException::withMessages(['transaction' => '取消取引を再び取り消すことはできません。']);
+            }
             if (BenefitTransaction::query()->where('reversal_of_transaction_id', $lockedOriginal->id)->exists()) {
                 throw ValidationException::withMessages(['transaction' => 'この取引はすでに取り消されています。']);
             }

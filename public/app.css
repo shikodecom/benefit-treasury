@@ -7,3 +7,7 @@
 .member-options{display:grid;gap:10px;border:1px solid #dbe7de;border-radius:9px;padding:12px;min-width:0}.member-options legend{font-weight:700}.member-options .check{overflow-wrap:anywhere}.member-options .check input{flex:none}.search-chips .button{max-width:100%;overflow-wrap:anywhere}
 
 .search-pagination{margin-top:20px}.search-pagination [aria-disabled="true"]{opacity:.5;cursor:default}.search-pagination .button{min-width:44px;min-height:44px}
+
+.import-row-edit{width:100%;min-width:0}.import-row-edit summary{cursor:pointer;font-weight:700}.import-row-edit dd{margin:4px 0 12px;overflow-wrap:anywhere}.import-mapping .check input{flex:none}.import-row-edit .help{overflow-wrap:anywhere}
+
+.import-sheet{min-width:0;margin:16px 0;padding:12px}.import-mapping{min-width:0}.import-mapping .check{min-height:44px}
