@@ -120,6 +120,8 @@ class BenefitLotController extends Controller
         if ($creating) {
             $rules['account_id'] = ['required', 'integer', Rule::exists('benefit_accounts', 'id')];
             $rules['quantity'] = ['required', 'numeric', 'gt:0', 'decimal:0,4'];
+        } else {
+            $rules['account_id'] = ['prohibited'];
         }
 
         return $request->validate($rules);

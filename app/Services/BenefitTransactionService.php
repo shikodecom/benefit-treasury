@@ -111,7 +111,7 @@ class BenefitTransactionService
                 throw ValidationException::withMessages(['transaction' => '移行詳細から訂正してください。']);
             }
             if ($lockedOriginal->transaction_type === 'reversal') {
-                throw ValidationException::withMessages(['transaction' => '取消取引を再び取り消すことはできません。']);
+                throw ValidationException::withMessages(['transaction' => '取消取引を再び取り消すことはできません。残高調整で訂正してください。']);
             }
             if (BenefitTransaction::query()->where('reversal_of_transaction_id', $lockedOriginal->id)->exists()) {
                 throw ValidationException::withMessages(['transaction' => 'この取引はすでに取り消されています。']);
