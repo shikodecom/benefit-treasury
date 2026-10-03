@@ -1,21 +1,23 @@
 # Release gate #22（2026-10-03）
 
-判定: **未通過**。#18〜#21はPR #24〜#27としてmainへマージ済み。今回の合成データ検証は成功したが、[ケース別照合](mvp-case-evidence.md)の未検証項目と、本番証跡が残る。#22/#11/#14/#1はOpenを維持する。
+判定: **未通過**。#18〜#21はPR #24〜#27としてmainへマージ済み。今回の合成データ検証は成功したが、[ケース別照合](mvp-case-evidence.md)のローカル113件はpass。本番証跡が残る。#22/#11/#14/#1はOpenを維持する。
 
-ローカル全Feature 97件/1,225 assertions、Pint、Blade cache、Vite buildは成功。MySQL CIの既存競合検証も全5反復成功。追加テストの起動ではCIにないUnitディレクトリが参照されたため、Feature suiteを明示して修正した。
+ローカル全Feature 108件/1,357 assertions、Pint、Blade cache、Vite buildは成功。MySQL CIの既存競合検証も全5反復成功。追加テストの起動ではCIにないUnitディレクトリが参照されたため、Feature suiteを明示して修正した。
 
 ## 専用E2E
 
-`tests/Feature/ReleaseGateTest.php`はSQLiteと隔離MySQLで4件/132 assertions成功。既存の個別サービス検証に加え、HTTP経由のプレビュー、確定、遷移、残高、検索、通知操作を一連のケースとして検証する。
+`tests/Feature/ReleaseGateTest.php`はSQLiteと隔離MySQLで15件/264 assertions成功（専用E2E4件＋境界11件）。既存の個別サービス検証に加え、HTTP経由のプレビュー、確定、遷移、残高、検索、通知操作を一連のケースとして検証する。
 
 - E2E-03: ルート→プレビュー（未保存）→計画保存→3段申請・着弾→全口座台帳・Dashboard・検索・遅延除外。
 - E2E-04: upload→未知alias停止→alias登録→再マッピング→プレビュー→確定→残高110・3取引→同名／改名再取込0件。秘密列の非表示も確認。
 - E2E-05: 設定保存→生成→再実行0件→通知からロットへ遷移・既読→全量利用→次回生成0件→対応済み表示→一括既読・dismiss。
 - catch-up: 期限後41日で過去段階を増やさず`expired_30d`を1件、同日再実行0件。成功／失敗ログ、JST時刻、run_id、終了コード、例外内容の非漏洩を検証。
 
-375×812pxのローカル合成データ画面では、3段申請・着弾、通知設定の無効化／再有効化、既読・全量利用・対応済み・dismiss、Excel upload→マッピング→3件確定を操作した。横幅375px、document幅360px、取込後のJavaScript error 0件。ルート計画作成の初回操作は通常幅であり、alias補正と同名／改名再取込はHTTPテストで検証した。これら全操作を375pxで行った証跡、本番認証後操作、実機確認は未検証。
+375×812pxのローカル合成データ画面で、E2E-03の入力→プレビュー→保存→3段申請・着弾→残高0/0/0/1000、E2E-04のupload→未知alias停止→scoped alias登録→再マッピング→3件確定→同名／改名再取込0件→残高110・3取引、E2E-05の設定・既読・利用・対応済み・dismissを確認した。FEFOの期限順配分ボタンもAへ2・Bへ1、保存後合計9を確認。横幅375px、document幅360px、JavaScript error 0件。本番認証後操作と実機確認は未検証。
 
-画面証跡は合成データのみ: [移行](evidence/mobile-transfer-2026-10-03.jpg)、[通知](evidence/mobile-notification-2026-10-03.jpg)、[Excel](evidence/mobile-excel-2026-10-03.jpg)。
+画面証跡は合成データのみ: [移行プレビュー](evidence/mobile-transfer-preview375-2026-10-03.jpg)、[3段完了](evidence/mobile-transfer375-completed-2026-10-03.jpg)、[通知](evidence/mobile-notification-2026-10-03.jpg)、[alias補正後の確定](evidence/mobile-excel-alias375-2026-10-03.jpg)、[同名再取込](evidence/mobile-excel-same375-2026-10-03.jpg)、[改名再取込](evidence/mobile-excel-renamed375-2026-10-03.jpg)、[残高検算](evidence/mobile-excel-balance375-2026-10-03.jpg)、[FEFO配分](evidence/mobile-fefo-2026-10-03.jpg)。
+
+追加境界テストでは負数・direction指定・取消の取消、取得INSERT故障、ロット口座変更、出品予約中の利用、2ロット目の売却INSERT故障、移行残高不足・換算値分離、JST本日期限・7/8/30/31日・hold、通知文面と秘密属性非漏洩、alias scope、SQL injection、version・必須header欠落を確認した。directionと口座変更指定は従来無視していたが、受入条件に合わせてHTTPで明示拒否し、口座変更はServiceでも拒否する。取消の取消の拒否文面は調整操作を案内する。
 
 ## 隔離MySQL Excel性能
 
@@ -63,6 +65,6 @@ crontab -l
 - 実際の08:00 JST実行後に`storage/logs/notifications-scheduler.log`をサーバー上で確認する。本PRのコマンドは開始・完了／失敗をrun_id付きJSONで出力する。開始と完了の同run_id、`at`の+09:00、件数、duration、failedなしをサーバーのcron実行時刻／終了状態と照合する。ログ形式変更前の配置ではサーバー側開始・終了証跡も必要。
 - 同milestone/date再実行0件は合成データで検証済み。本番で再実行する際は、新しく対象となる通知がないか確認し、生成による本番への影響を記録する。本番へテスト用ロットを投入しない。
 - 認証済み本番セッションで設定保存・一括既読・dismiss・対応済み表示を確認し、操作対象と影響を記録する。
-- ケース表の未検証を専用assertion／操作で埋め、P0の未検証・失敗が残らないことを確認してから#14/#1のリリース可否を判定する。
+- ローカルの全P0/P1は合成データでpass。本番証跡と承認済み配置commitの検証を揃えてから#14/#1のリリース可否を判定する。
 
 本PRは検証基盤とローカル証跡を提供する。マージだけで#22やMVPを完了にしない。

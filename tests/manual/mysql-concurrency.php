@@ -264,6 +264,17 @@ for ($round = 1; $round <= 5; $round++) {
     assertEqual('7.0000', $read->unallocatedBalance($destination->id), 'destination balance');
     assertEqual(1, $destination->transactions()->where('transaction_type', 'transfer_in')->count(), 'transfer in count');
 
+    $sameSource = account("Concurrent same-step source {$round}");
+    $sameDestination = account("Concurrent same-step destination {$round}");
+    $transactions->createOpeningBalance($sameSource, '2026-09-29', '14', null);
+    $sameGroup = $transfers->createGroup([]);
+    $sameStep = $transfers->addStep($sameGroup, ['from_account_id' => $sameSource->id,
+        'to_account_id' => $sameDestination->id, 'source_quantity' => '7']);
+    race('transfer_start', [$sameStep->id, $sameStep->id], 'benefit_accounts', $sameSource->id);
+    assertEqual('7.0000', $read->unallocatedBalance($sameSource->id), 'same step source balance');
+    assertEqual(1, $sameSource->transactions()->where('transaction_type', 'transfer_out')->count(), 'same step out count');
+    assertEqual('processing', $sameStep->fresh()->status, 'same step processing');
+
     $importAccount = account("Concurrent import {$round}");
     $firstImport = importBatch($importAccount, 'import-'.$round);
     $secondImport = importBatch($importAccount, 'import-'.$round);

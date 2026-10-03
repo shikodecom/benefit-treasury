@@ -57,4 +57,4 @@ jobs:
       - run: cp .env.example .env && php artisan key:generate
       - run: php artisan migrate:fresh --force
       - run: php tests/manual/mysql-concurrency.php
-      - run: php artisan test --testsuite=Feature --filter=ReleaseGateTest
+      - run: php artisan test --testsuite=Feature --filter=ReleaseGate

@@ -36,6 +36,9 @@ class BenefitLotService
 
     public function update(BenefitLot $lot, array $data): BenefitLot
     {
+        if (array_key_exists('account_id', $data) && (int) $data['account_id'] !== $lot->account_id) {
+            throw ValidationException::withMessages(['account_id' => '取引済みロットの口座は変更できません。']);
+        }
         $this->fill($lot, $data);
         $lot->save();
 

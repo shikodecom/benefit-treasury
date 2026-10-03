@@ -33,12 +33,12 @@ PRごとに `vendor/bin/pint --test`、`php artisan test --testsuite=Feature`、
 #18〜#21はPR #24〜#27としてmainへマージ済み。移行・交換ルール・プレ商品券のImporterは明示マッピングと行単位レビューを含めて実装済み。
 
 - [release gateの実行証跡・本番確認手順](release-gate.md)
-- [P0 73件／P1 40件のケース別対応表](mvp-case-evidence.md)。専用assertionが足りない項目は未検証とし、Feature全成功から全ケース成功を推測しない。
-- E2E-03〜05と通知catch-upの専用通しテストをSQLite／MySQLで追加。375pxの合成画面でも主要操作を確認したが、全操作の375px証跡・本番操作は残る。
+- [P0 73件／P1 40件のケース別対応表](mvp-case-evidence.md)。不足していた境界・故障注入・文面・FEFO操作を追加し、113件を個別にpassへ対応付けた。
+- E2E-03〜05と通知catch-upの専用通しテストをSQLite／MySQLで追加。375pxの合成画面でもE2E-03〜05とFEFOを通して確認した。本番操作は残る。
 - 隔離MySQLで2,000／10,000／20,000行×1／4口座の6ケースがpass。残高・件数一致、改名再取込0件。phase別の時間・peak memory・SQL・ロック指標をJSONLに保存した。
 - 通知コマンドにJST開始・終了時刻、run_id、件数、所要時間、安全な失敗コードを追加した。
 
-**release gateは未通過。** 本番配置commit、migration、実際の08:00 cron、認証後の通知操作、およびケース表の未検証項目が残る。#22/#11/#14/#1はOpenを維持する。
+**release gateは未通過。** 本番配置commit、migration、実際の08:00 cron、認証後の通知操作、が残る。#22/#11/#14/#1はOpenを維持する。
 
 ## 口座別Excel重複判定 (#18)
 

@@ -81,6 +81,7 @@ class BenefitTransactionController extends Controller
     public function store(Request $request, BenefitTransactionService $service): RedirectResponse
     {
         $data = $request->validate([
+            'direction' => ['prohibited'],
             'account_id' => ['required', 'integer', Rule::exists('benefit_accounts', 'id')],
             'transaction_type' => ['required', Rule::in(['opening_balance', 'earn', 'use', 'adjustment_in', 'adjustment_out'])],
             'transaction_at' => ['required', 'date'],
