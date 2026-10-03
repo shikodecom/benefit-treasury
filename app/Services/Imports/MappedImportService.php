@@ -8,11 +8,11 @@ use Illuminate\Validation\ValidationException;
 
 class MappedImportService
 {
-    public function __construct(private readonly TransferSheetImporter $transfers, private readonly ConversionRuleSheetImporter $rules) {}
+    public function __construct(private readonly TransferSheetImporter $transfers, private readonly ConversionRuleSheetImporter $rules, private readonly PremiumVoucherSheetImporter $vouchers) {}
 
     public function importer(string $sheet): ?MappedSheetImporter
     {
-        foreach ([$this->transfers, $this->rules] as $importer) {
+        foreach ([$this->transfers, $this->rules, $this->vouchers] as $importer) {
             if ($importer->supports($sheet)) {
                 return $importer;
             }
@@ -24,6 +24,14 @@ class MappedImportService
     public function preview(ImportRecord $record, array $mapping, ?array $override = null): void
     {
         $importer = $this->importer($record->source_sheet);
+        if ($record->record_type === 'premium_voucher') {
+            // Empty sheet defaults retain the value in each row; an explicit row blank still clears it.
+            foreach (['native_unit', 'snapshot_at'] as $field) {
+                if (blank($mapping[$field] ?? null)) {
+                    unset($mapping[$field]);
+                }
+            }
+        }
         $rowOptions = $record->normalized_data_json['_row_options'] ?? [];
         if ($override !== null) {
             $rowOptions = array_replace($rowOptions, $override);
@@ -78,6 +86,7 @@ class MappedImportService
         $data = array_merge($importer->normalize($record, $previous['_mapping']), [
             '_mapping' => $previous['_mapping'], '_row_options' => $previous['_row_options'],
         ]);
+        $data = $importer->prepareCommit($data);
         if (DB::table('imported_fingerprints')->insertOrIgnore([
             'row_fingerprint' => $importer->scopeKey($record, $data), 'import_record_id' => $record->id, 'created_at' => now(),
         ]) === 0) {

@@ -22,6 +22,8 @@
     <div class="field"><label>{{ $label }}<input name="{{ $prefix }}[{{ $field }}]" type="number" min="1" value="{{ $options[$field] ?? '' }}"></label></div>
     @endforeach
     @endif
+@elseif($type === 'premium_voucher')
+    @include('imports.voucher-fields')
 @else
     @foreach(['from_program_id'=>'交換元制度', 'to_program_id'=>'交換先制度'] as $field => $label)
     <div class="field"><label>{{ $label }}<select name="{{ $prefix }}[{{ $field }}]"><option value="">選択してください</option>@foreach($programs as $program)<option value="{{ $program->id }}" @selected(($options[$field] ?? '') == $program->id)>{{ $program->name }}（{{ $program->unit_name }}）</option>@endforeach</select></label></div>
@@ -40,5 +42,5 @@
     <p class="help">実質レートだけでは交換数量を確定しません。キャンペーン限定は開始・終了日が必要です。</p>
     @endif
 @endif
-<input type="hidden" name="{{ $prefix }}[confirm_native]" value="0"><label class="check"><input type="checkbox" name="{{ $prefix }}[confirm_native]" value="1" @checked(!empty($options['confirm_native']))>元・先の数量が各制度のnative単位で、換算数量と別であることを確認した</label>
+<input type="hidden" name="{{ $prefix }}[confirm_native]" value="0"><label class="check"><input type="checkbox" name="{{ $prefix }}[confirm_native]" value="1" @checked(!empty($options['confirm_native']))>{{ $type === 'premium_voucher' ? '残数量が口座の単位と一致し、円額とは別に確認した' : '元・先の数量が各制度のnative単位で、換算数量と別であることを確認した' }}</label>
 </div>
