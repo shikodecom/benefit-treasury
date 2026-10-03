@@ -2,7 +2,7 @@
 
 判定: **未通過**。#18〜#21はPR #24〜#27としてmainへマージ済み。今回の合成データ検証は成功したが、[ケース別照合](mvp-case-evidence.md)の未検証項目と、本番証跡が残る。#22/#11/#14/#1はOpenを維持する。
 
-ローカル全Feature 97件/1,225 assertions、Pint、Blade cache、Vite buildは成功。
+ローカル全Feature 97件/1,225 assertions、Pint、Blade cache、Vite buildは成功。MySQL CIの既存競合検証も全5反復成功。追加テストの起動ではCIにないUnitディレクトリが参照されたため、Feature suiteを明示して修正した。
 
 ## 専用E2E
 

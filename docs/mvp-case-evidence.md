@@ -2,7 +2,7 @@
 
 対象コード: main `6d64c7c`（PR #27まで）＋本PR。全P0 73件・P1 40件を列挙する。`pass`は合成データの自動assertionが対応するケースで、本番動作の証明ではない。専用assertionや操作証跡が足りないケースは、近いテストが通っていても`未検証`に残す。失敗・適用外への置換やMVP範囲変更は行っていない。
 
-判定はFeature実行結果と以下のテストメソッドを照合する。競合ケースはCI成功確認後に更新する。
+判定はFeature実行結果と以下のテストメソッドを照合する。競合ケースはCIの各ステップの実ログも確認する。
 
 | ケース | 内容 | 状態 | 証跡／残確認 |
 | --- | --- | --- | --- |
@@ -14,7 +14,7 @@
 | P0-06 | 二重reversal | pass | [LedgerTest::test_reversal_is_single_use_and_lot_cancel_is_atomic](../tests/Feature/LedgerTest.php) |
 | P0-07 | reversalのreversal | 未検証 | 取消取引そのものの取消を拒否する専用assertionがない。 |
 | P0-08 | account overdraw | pass | [LedgerTest::test_manual_transactions_preserve_balance_and_prevent_overdraft](../tests/Feature/LedgerTest.php) |
-| P0-09 | concurrent account use | 未検証 | mysql-concurrency.phpのaccount_useが対象。今回のCI競合結果で再確認する。 |
+| P0-09 | concurrent account use | pass | [mysql-concurrency.php](../tests/manual/mysql-concurrency.php) account_use、[CI](https://github.com/shikodecom/benefit-treasury/actions/runs/37084982930)の競合ステップ全5反復成功（後続テスト起動のsuite指定失敗は別途修正）。 |
 | P0-10 | lot basic | pass | [LedgerTest::test_lot_acquisition_use_expiry_and_cancel_are_history_based](../tests/Feature/LedgerTest.php) |
 | P0-11 | lot acquire rollback | 未検証 | 既存テストは非active口座拒否。取得取引保存途中の故障注入ではない。 |
 | P0-12 | partial use | pass | [LedgerTest::test_lot_acquisition_use_expiry_and_cancel_are_history_based](../tests/Feature/LedgerTest.php) |
@@ -28,10 +28,10 @@
 | P0-20 | listing partial reserve | pass | [ListingTest::test_draft_publish_price_sale_and_reversal_keep_inventory_and_history](../tests/Feature/ListingTest.php) |
 | P0-21 | draft does not reserve | pass | [ListingTest::test_draft_publish_price_sale_and_reversal_keep_inventory_and_history](../tests/Feature/ListingTest.php) |
 | P0-22 | listing over-reserve | pass | [ListingTest::test_reservation_is_rechecked_and_restricted_lots_cannot_publish](../tests/Feature/ListingTest.php) |
-| P0-23 | concurrent listing reserve | 未検証 | mysql-concurrency.phpのpublishが対象。今回のCI競合結果で再確認する。 |
+| P0-23 | concurrent listing reserve | pass | [mysql-concurrency.php](../tests/manual/mysql-concurrency.php) publish、[CI](https://github.com/shikodecom/benefit-treasury/actions/runs/37084982930)の競合ステップ全5反復成功（後続テスト起動のsuite指定失敗は別途修正）。 |
 | P0-24 | use while listed | 未検証 | 出品中ロットを直接利用し、予約数を保持する専用assertionがない。 |
 | P0-25 | sell listing | pass | [ListingTest::test_draft_publish_price_sale_and_reversal_keep_inventory_and_history](../tests/Feature/ListingTest.php) |
-| P0-26 | double sell | 未検証 | mysql-concurrency.phpのsellが対象。今回のCI競合結果で再確認する。 |
+| P0-26 | double sell | pass | [mysql-concurrency.php](../tests/manual/mysql-concurrency.php) sell、[CI](https://github.com/shikodecom/benefit-treasury/actions/runs/37084982930)の競合ステップ全5反復成功（後続テスト起動のsuite指定失敗は別途修正）。 |
 | P0-27 | sell rollback | 未検証 | 売却途中で故障させ全rollbackする専用assertionがない。 |
 | P0-28 | listing cancel | pass | [ListingTest::test_reservation_is_rechecked_and_restricted_lots_cannot_publish](../tests/Feature/ListingTest.php) |
 | P0-29 | ended unsold | pass | [ListingTest::test_reservation_is_rechecked_and_restricted_lots_cannot_publish](../tests/Feature/ListingTest.php) |
@@ -41,7 +41,7 @@
 | P0-33 | transfer planned | pass | [TransferTest::test_planned_start_complete_and_actual_difference_are_history_based](../tests/Feature/TransferTest.php) |
 | P0-34 | transfer start | pass | [TransferTest::test_planned_start_complete_and_actual_difference_are_history_based](../tests/Feature/TransferTest.php) |
 | P0-35 | transfer source insufficient | 未検証 | 予約による不足はテスト済み。単純残高不足の移行申請を専用確認する。 |
-| P0-36 | concurrent transfer start | 未検証 | mysql-concurrency.phpのstart/completeが対象。今回のCI競合結果で再確認する。 |
+| P0-36 | concurrent transfer start | pass | [mysql-concurrency.php](../tests/manual/mysql-concurrency.php) transfer_start / transfer_complete、[CI](https://github.com/shikodecom/benefit-treasury/actions/runs/37084982930)の競合ステップ全5反復成功（後続テスト起動のsuite指定失敗は別途修正）。 |
 | P0-37 | transfer complete | pass | [TransferTest::test_planned_start_complete_and_actual_difference_are_history_based](../tests/Feature/TransferTest.php) |
 | P0-38 | double complete | pass | [TransferTest::test_planned_start_complete_and_actual_difference_are_history_based](../tests/Feature/TransferTest.php) |
 | P0-39 | actual differs | pass | [TransferTest::test_planned_start_complete_and_actual_difference_are_history_based](../tests/Feature/TransferTest.php) |
@@ -120,6 +120,6 @@
 | P1-39 | importer version | 未検証 | batchのimporter_version値を専用assertしていない。 |
 | P1-40 | unsupported headers | 未検証 | 各必須header欠落時のsheet errorを専用assertしていない。 |
 
-暫定集計: pass 84件／未検証 29件／失敗0件／適用外0件。未検証P0があるため、全P0成功とは判定しない。
+暫定集計: pass 88件／未検証 25件／失敗0件／適用外0件。未検証P0があるため、全P0成功とは判定しない。
 
 ケースに加え、本番配置commit・migration・cronの08:00実行・認証後操作が未検証。残確認は#22/#14に集約する。
