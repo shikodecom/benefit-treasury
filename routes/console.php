@@ -5,6 +5,7 @@ use App\Services\BenefitNotificationService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Str;
 
 Artisan::command('benefit:db-check', function (): int {
     try {
@@ -40,9 +41,26 @@ Artisan::command('benefit:create-admin', function (): int {
     return 0;
 })->purpose('Create or update the administrator login');
 
-Artisan::command('benefit:notifications', function (): void {
-    $count = app(BenefitNotificationService::class)->generate();
-    $this->info("Created {$count} notifications.");
+Artisan::command('benefit:notifications', function (): int {
+    $run = (string) Str::uuid();
+    $started = hrtime(true);
+    $this->line(json_encode(['event' => 'notifications.started', 'run_id' => $run,
+        'at' => now('Asia/Tokyo')->toIso8601String()]));
+    try {
+        $count = app(BenefitNotificationService::class)->generate();
+        $this->info(json_encode(['event' => 'notifications.completed', 'run_id' => $run,
+            'at' => now('Asia/Tokyo')->toIso8601String(), 'created' => $count,
+            'duration_ms' => round((hrtime(true) - $started) / 1e6, 1)]));
+
+        return 0;
+    } catch (Throwable) {
+        // Never emit row contents, SQL bindings or exception messages to scheduler output.
+        $this->error(json_encode(['event' => 'notifications.failed', 'run_id' => $run,
+            'at' => now('Asia/Tokyo')->toIso8601String(), 'error_code' => 'generation_failed',
+            'duration_ms' => round((hrtime(true) - $started) / 1e6, 1)]));
+
+        return 1;
+    }
 })->purpose('Generate due benefit and transfer notifications');
 
 Schedule::command('benefit:notifications')->dailyAt('08:00')->timezone('Asia/Tokyo')
