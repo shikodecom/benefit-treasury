@@ -38,7 +38,7 @@ PRごとに `vendor/bin/pint --test`、`php artisan test --testsuite=Feature`、
 - 隔離MySQLで2,000／10,000／20,000行×1／4口座の6ケースがpass。残高・件数一致、改名再取込0件。phase別の時間・peak memory・SQL・ロック指標をJSONLに保存した。
 - 通知コマンドにJST開始・終了時刻、run_id、件数、所要時間、安全な失敗コードを追加した。
 
-**release gateは未通過。** 本番配置commit、migration、実際の08:00 cron、認証後の通知操作、が残る。#22/#11/#14/#1はOpenを維持する。
+**release gateは未通過。** 本番配置commit、migration、実際の08:00 cron、認証後の通知操作が残る。#22/#11/#14/#1はOpenを維持する。
 
 ## 口座別Excel重複判定 (#18)
 
